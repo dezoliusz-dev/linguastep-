@@ -381,14 +381,17 @@
     .no-scrollbar::-webkit-scrollbar { display: none; }
     .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 
-    /* Tryb prosty (większa czytelność i wygodniejsze przyciski) */
-    html[data-simple="true"] {
+    /* Spójny, czytelny rozmiar czcionki w całej aplikacji */
+    html[data-text-size="large"] {
       font-size: 17px;
     }
     @media (min-width: 768px) {
-      html[data-simple="true"] {
+      html[data-text-size="large"] {
         font-size: 16.5px;
       }
+    }
+    html[data-text-size="normal"] {
+      font-size: 15.5px;
     }
 
     /* Bezpieczny margines na dole dla paska nawigacji w telefonie */
@@ -509,7 +512,11 @@
     let state = {
       view: "home", // home | dashboard | lesson | dialogues_hub | hard_words | import_pack | review_hub | options | account | progress_hub
       theme: "dark", // dark | light
-      simpleMode: false,
+      simpleMode: true,
+      textSize: "large", // large | normal
+      ratingStyle: "simple", // simple (2 przyciski) | classic (4 przyciski Anki)
+      stage5Index: 0,
+      stage5ShowAll: false,
       showTranslationAlways: true,
       userLevel: "A0",
       levelFilter: "A0",
@@ -778,7 +785,11 @@
           ...parsed,
           view: "home",
           theme: parsed.theme === "light" ? "light" : "dark",
-          simpleMode: Boolean(parsed.simpleMode),
+          simpleMode: true,
+          textSize: parsed.textSize === "normal" ? "normal" : "large",
+          ratingStyle: parsed.ratingStyle === "classic" ? "classic" : "simple",
+          stage5Index: 0,
+          stage5ShowAll: false,
           showTranslationAlways: parsed.showTranslationAlways !== undefined ? Boolean(parsed.showTranslationAlways) : true,
           userLevel: ["A0", "A1", "A2", "B1", "B2"].includes(parsed.userLevel)
             ? parsed.userLevel
@@ -1099,7 +1110,8 @@
       if (typeof data.spellingWordsPassed === "number") state.spellingWordsPassed = Math.max(state.spellingWordsPassed || 0, data.spellingWordsPassed);
       if (data.selectedVoiceName) state.selectedVoiceName = data.selectedVoiceName;
           if (data.theme === "light" || data.theme === "dark") { state.theme = data.theme; applyTheme(); }
-          if (typeof data.simpleMode === "boolean") { state.simpleMode = data.simpleMode; applyTheme(); }
+          if (data.textSize === "large" || data.textSize === "normal") { state.textSize = data.textSize; applyTheme(); }
+          if (data.ratingStyle === "simple" || data.ratingStyle === "classic") state.ratingStyle = data.ratingStyle;
           if (typeof data.showTranslationAlways === "boolean") state.showTranslationAlways = data.showTranslationAlways;
           if (["A0", "A1", "A2", "B1", "B2"].includes(data.userLevel)) { state.userLevel = data.userLevel; clampFiltersToUserLevel(); }
           if (Array.isArray(data.completedRoleplays)) {
@@ -1186,7 +1198,8 @@
           spellingWordsPassed: state.spellingWordsPassed || 0,
           selectedVoiceName: state.selectedVoiceName || "",
           theme: state.theme === "light" ? "light" : "dark",
-          simpleMode: Boolean(state.simpleMode),
+          textSize: state.textSize === "normal" ? "normal" : "large",
+          ratingStyle: state.ratingStyle === "classic" ? "classic" : "simple",
           showTranslationAlways: Boolean(state.showTranslationAlways),
           userLevel: getUserLevel(),
           direction: state.direction,
@@ -1238,7 +1251,8 @@
           spellingWordsPassed: state.spellingWordsPassed || 0,
           selectedVoiceName: state.selectedVoiceName || "",
           theme: state.theme === "light" ? "light" : "dark",
-          simpleMode: Boolean(state.simpleMode),
+          textSize: state.textSize === "normal" ? "normal" : "large",
+          ratingStyle: state.ratingStyle === "classic" ? "classic" : "simple",
           showTranslationAlways: Boolean(state.showTranslationAlways),
           direction: state.direction,
           userLevel: getUserLevel(),
@@ -1264,34 +1278,30 @@
     // =========================================================================
     function applyTheme() {
       const t = state.theme === "light" ? "light" : "dark";
+      const sz = state.textSize === "normal" ? "normal" : "large";
       document.documentElement.setAttribute("data-theme", t);
-      document.documentElement.setAttribute("data-simple", state.simpleMode ? "true" : "false");
+      document.documentElement.setAttribute("data-text-size", sz);
       const meta = document.getElementById("meta-theme-color");
       if (meta) meta.setAttribute("content", t === "light" ? "#ffffff" : "#0c111b");
     }
 
-    function setSimpleMode(enabled, silent = false) {
-      state.simpleMode = Boolean(enabled);
-      if (state.simpleMode) {
-        state.showTranslationAlways = true;
-      }
+    function setTextSize(sz) {
+      state.textSize = sz === "normal" ? "normal" : "large";
       applyTheme();
       saveState();
-      if (!silent) {
-        showToast(
-          state.simpleMode ? "🌱 Włączono Tryb prosty" : "⚡ Włączono Pełny tryb",
-          state.simpleMode
-            ? "Większe napisy, tłumaczenia zawsze widoczne i uproszczone menu."
-            : "Przywrócono pełny widok ze wszystkimi grami i statystykami.",
-          "info",
-          3200
-        );
-      }
       render();
     }
 
-    function toggleSimpleMode() {
-      setSimpleMode(!state.simpleMode);
+    function setRatingStyle(style) {
+      state.ratingStyle = style === "classic" ? "classic" : "simple";
+      saveState();
+      render();
+    }
+
+    function setStage5Index(idx, maxLen) {
+      stopCurrentAudio();
+      state.stage5Index = Math.max(0, Math.min(maxLen - 1, idx));
+      render();
     }
 
     function toggleShowTranslationAlways() {
@@ -3367,29 +3377,28 @@
       }
 
       return `
-        <div class="p-3.5 rounded-2xl bg-slate-950/90 border border-slate-800 space-y-2">
-          <div class="flex flex-wrap items-center justify-between gap-2">
-            <span class="text-xs font-bold text-indigo-300 uppercase tracking-wide">${escHtml(label)}</span>
-            <div class="flex items-center gap-1.5">
-              <button onclick="speakByKey('${key}', ${state.defaultRate})" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-white font-medium">🔊 ${state.defaultRate}x</button>
-              <button onclick="speakByKey('${key}', 0.65)" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-amber-300 font-medium">🐢 0.65x</button>
-            </div>
-          </div>
-          ${phonText ? `<p class="text-xs sm:text-sm text-amber-300 font-mono bg-amber-950/30 border border-amber-500/20 px-2.5 py-1.5 rounded-lg">🗣️ Wymowa: <b>[${escHtml(phonText)}]</b></p>` : ""}
-          ${state.silentMode ? `
-            <p class="text-[11px] text-slate-500 text-center py-1">🔇 Tryb cichy włączony (słuchawki bez mikrofonu · zmienisz w Opcjach)</p>
-          ` : `
-            <button onclick="micByKey('${key}', ${passThreshold})" class="w-full py-2.5 px-3 rounded-xl font-bold text-xs sm:text-sm flex items-center justify-center gap-2 transition ${
-              isListening
-                ? "bg-rose-600 text-white"
-                : res && res.score >= passThreshold
-                  ? "bg-emerald-600/25 border border-emerald-500/50 text-emerald-300 hover:bg-emerald-600/35"
-                  : "bg-indigo-600/25 border border-indigo-500/50 text-indigo-200 hover:bg-indigo-600/35"
-            }">
-              🎤 ${isListening ? "Słucham... Mów teraz" : res && res.score >= passThreshold ? "✓ Zaliczono — powtórz jeszcze raz" : "Powiedz na głos"}
+        <div class="space-y-2.5">
+          ${phonText ? `<p class="text-sm text-amber-300 font-mono text-center">[${escHtml(phonText)}]</p>` : ""}
+          <div class="grid ${state.silentMode ? 'grid-cols-2' : 'grid-cols-3'} gap-2">
+            <button onclick="speakByKey('${key}', ${state.defaultRate})" class="py-3 px-2 rounded-2xl bg-slate-800 hover:bg-slate-700 text-sm font-bold text-white flex items-center justify-center gap-1.5 transition">
+              <span>🔊</span><span>Posłuchaj</span>
             </button>
-            ${feedbackHtml}
-          `}
+            <button onclick="speakByKey('${key}', 0.65)" class="py-3 px-2 rounded-2xl bg-slate-800 hover:bg-slate-700 text-sm font-bold text-amber-300 flex items-center justify-center gap-1.5 transition">
+              <span>🐢</span><span>Wolno</span>
+            </button>
+            ${!state.silentMode ? `
+              <button onclick="micByKey('${key}', ${passThreshold})" class="py-3 px-2 rounded-2xl font-bold text-sm flex items-center justify-center gap-1.5 border transition ${
+                isListening
+                  ? "bg-rose-600 border-rose-400 text-white btn-solid"
+                  : res && res.score >= passThreshold
+                    ? "bg-emerald-600/25 border-emerald-500/50 text-emerald-300 hover:bg-emerald-600/35"
+                    : "bg-indigo-600/25 border-indigo-500/50 text-indigo-200 hover:bg-indigo-600/35"
+              }">
+                <span>🎤</span><span>${isListening ? "Mów..." : res && res.score >= passThreshold ? "Zaliczono" : "Powiedz"}</span>
+              </button>
+            ` : ""}
+          </div>
+          ${!state.silentMode ? feedbackHtml : ""}
         </div>
       `;
     }
@@ -4430,6 +4439,7 @@
       state.dictInput = "";
       state.dictChecked = false; state.dictStatus = null;
       state.dictHintShown = false;
+      state.stage5Index = 0;
       render();
     }
 
@@ -4465,6 +4475,8 @@
       state.dictHintShown = false;
       state.dictMode = "auto";
       state.dialogueRole = "ALL";
+      state.stage5Index = 0;
+      state.stage5ShowAll = false;
       render();
     }
 
@@ -4486,6 +4498,7 @@
       state.dictInput = "";
       state.dictChecked = false; state.dictStatus = null;
       state.dictHintShown = false;
+      state.stage5Index = 0;
       render();
     }
 
@@ -7126,7 +7139,7 @@
           `;
         })() : ""}
 
-        <!-- CZYSTY GÓRNY PASEK + PASEK ZAKŁADEK (ZERO KOLIZJI Z „POWERED BY NETLIFY” NA DOLE) -->
+        <!-- CZYSTY GÓRNY PASEK + 4 PRZEJRZYSTE ZAKŁADKI -->
         <header class="app-header sticky top-0 z-30 backdrop-blur-md">
           <div class="max-w-5xl mx-auto px-3 sm:px-4 py-2 sm:py-2.5 flex items-center justify-between gap-2">
             <!-- LOGO -->
@@ -7134,52 +7147,36 @@
               ${renderBrandLogoSvg("w-8 h-8 sm:w-9 sm:h-9", "hdr")}
               <div>
                 <h1 class="font-extrabold text-sm sm:text-base tracking-tight text-white leading-none">LinguaStep</h1>
-                <p class="text-[11px] text-slate-400 mt-0.5 hidden lg:block">${state.simpleMode ? 'Tryb prosty' : 'Angielski A0–B2'}</p>
+                <p class="text-[11px] text-slate-400 mt-0.5 hidden lg:block">Angielski A0–B2</p>
               </div>
             </button>
 
-            <!-- NAWIGACJA GŁÓWNA (KOMPUTER: W ŚRODKU GÓRNEGO PASKA) -->
+            <!-- NAWIGACJA GŁÓWNA (KOMPUTER: 4 PROSTE ZAKŁADKI) -->
             <nav aria-label="Główna nawigacja" class="hidden md:flex items-center gap-1 bg-slate-900 p-1 rounded-2xl border border-slate-800">
-              <button onclick="navigateTo('home')" class="dock-item px-3 py-1.5 rounded-xl flex items-center gap-1.5 text-xs font-bold transition ${isHomeTab ? 'dock-item-active' : ''}">
+              <button onclick="navigateTo('home')" class="dock-item px-3.5 py-1.5 rounded-xl flex items-center gap-1.5 text-xs font-bold transition ${isHomeTab ? 'dock-item-active' : ''}">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>
                 <span>Start</span>
               </button>
-              <button onclick="navigateTo('dashboard')" class="dock-item px-3 py-1.5 rounded-xl flex items-center gap-1.5 text-xs font-bold transition ${isLessonsTab ? 'dock-item-active' : ''}">
+              <button onclick="navigateTo('dashboard')" class="dock-item px-3.5 py-1.5 rounded-xl flex items-center gap-1.5 text-xs font-bold transition ${isLessonsTab ? 'dock-item-active' : ''}">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/></svg>
                 <span>Lekcje</span>
               </button>
-              <button onclick="navigateTo('review_hub', { reviewMode: 'menu' })" class="dock-item px-3 py-1.5 rounded-xl flex items-center gap-1.5 text-xs font-bold transition ${isReviewTab ? 'dock-item-active' : ''}">
+              <button onclick="navigateTo('review_hub', { reviewMode: 'menu' })" class="dock-item px-3.5 py-1.5 rounded-xl flex items-center gap-1.5 text-xs font-bold transition ${isReviewTab || isDialoguesTab ? 'dock-item-active' : ''}">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
-                <span>${state.simpleMode ? 'Powtórki' : 'Trening'}</span>
+                <span>Trening</span>
                 ${dueCount > 0 ? `<span class="px-1.5 py-0.5 rounded-full bg-rose-500 text-white text-[10px] leading-none font-bold btn-solid">${dueCount}</span>` : ""}
               </button>
-              <button onclick="navigateTo('dialogues_hub', { resetRoleplay: true })" class="dock-item px-3 py-1.5 rounded-xl flex items-center gap-1.5 text-xs font-bold transition ${isDialoguesTab ? 'dock-item-active' : ''}">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/></svg>
-                <span>Rozmówki</span>
-              </button>
-              <button onclick="openOptions()" class="dock-item px-3 py-1.5 rounded-xl flex items-center gap-1.5 text-xs font-bold transition ${isOptionsTab ? 'dock-item-active' : ''}">
+              <button onclick="openOptions()" class="dock-item px-3.5 py-1.5 rounded-xl flex items-center gap-1.5 text-xs font-bold transition ${isOptionsTab ? 'dock-item-active' : ''}">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"/></svg>
                 <span>Opcje</span>
               </button>
             </nav>
 
-            <!-- PRAWA STRONA: POZIOM + (SERIA NA DESKTOPIE) + MOTYW + KONTO -->
+            <!-- PRAWA STRONA: POZIOM + MOTYW + KONTO -->
             <div class="flex items-center gap-1.5 sm:gap-2">
-              <select aria-label="Twój aktywny poziom nauki" title="Twój aktywny poziom — ustawia zakres całej aplikacji (A0 → wybrany poziom)" onchange="setUserLevel(this.value)" class="px-2 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-teal-500/45 text-teal-300 text-xs font-extrabold cursor-pointer focus:outline-none">
+              <select aria-label="Twój aktywny poziom nauki" title="Twój aktywny poziom — ustawia zakres całej aplikacji (A0 → wybrany poziom)" onchange="setUserLevel(this.value)" class="px-2.5 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-teal-500/45 text-teal-300 text-xs font-extrabold cursor-pointer focus:outline-none">
                 ${CEFR_ORDER.map(lv => `<option value="${lv}" ${activeUserLevel === lv ? 'selected' : ''}>🎯 ${lv}</option>`).join("")}
               </select>
-              ${!state.simpleMode ? `
-                <button onclick="navigateTo('progress_hub')" title="Poziomy, seria dni i odznaki" class="hidden sm:flex px-2.5 py-1.5 rounded-xl border text-xs font-bold transition items-center gap-1.5 ${
-                  isProgressTab
-                    ? 'bg-blue-600 border-blue-500 text-white btn-solid'
-                    : 'bg-slate-900 hover:bg-slate-800 border-slate-800 text-slate-200'
-                }">
-                  <span class="${isProgressTab ? 'text-white' : streakInfo.currentStreak > 0 ? 'text-orange-400' : 'text-slate-400'}">🔥 ${streakInfo.currentStreak}</span>
-                  <span class="opacity-30">|</span>
-                  <span class="${isProgressTab ? 'text-white' : 'text-blue-400'}">Lv.${lvlInfo.level}</span>
-                  <span class="hidden lg:inline ${isProgressTab ? 'text-white/90' : 'text-slate-400'} font-semibold">• ${state.xp} XP</span>
-                </button>
-              ` : ""}
 
               <button onclick="toggleTheme()" title="${isLight ? 'Przełącz na tryb ciemny' : 'Przełącz na tryb jasny'}" class="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 flex items-center justify-center text-slate-300 hover:text-white transition">
                 ${isLight
@@ -7201,10 +7198,10 @@
             </div>
           </div>
 
-          <!-- NAWIGACJA NA TELEFON: PRZYPIĘTY GÓRNY PASEK (ZERO ZASŁANIANIA NA DOLE, UKRYWANY W TRYBIE SKUPIENIA) -->
+          <!-- NAWIGACJA NA TELEFON: 4 PRZEJRZYSTE ZAKŁADKI U GÓRY (UKRYWANE PODCZAS LEKCJI) -->
           ${!inFocusSession ? `
           <nav aria-label="Nawigacja mobilna" class="md:hidden border-t border-slate-800/80 px-2 py-1.5">
-            <div class="max-w-lg mx-auto grid ${state.simpleMode ? 'grid-cols-4' : 'grid-cols-5'} gap-1">
+            <div class="max-w-lg mx-auto grid grid-cols-4 gap-1">
               <button onclick="navigateTo('home')" class="dock-item py-1.5 px-1 rounded-xl flex flex-col items-center justify-center gap-0.5 text-[11px] leading-tight font-semibold whitespace-nowrap transition ${isHomeTab ? 'dock-item-active' : ''}">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>
                 <span>Start</span>
@@ -7215,18 +7212,11 @@
                 <span>Lekcje</span>
               </button>
 
-              <button onclick="${state.simpleMode ? `startSrsReview('${dueCount > 0 ? 'due' : 'all_learned'}')` : `navigateTo('review_hub', { reviewMode: 'menu' })`}" class="dock-item relative py-1.5 px-1 rounded-xl flex flex-col items-center justify-center gap-0.5 text-[11px] leading-tight font-semibold whitespace-nowrap transition ${isReviewTab ? 'dock-item-active' : ''}">
+              <button onclick="navigateTo('review_hub', { reviewMode: 'menu' })" class="dock-item relative py-1.5 px-1 rounded-xl flex flex-col items-center justify-center gap-0.5 text-[11px] leading-tight font-semibold whitespace-nowrap transition ${isReviewTab || isDialoguesTab ? 'dock-item-active' : ''}">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
-                <span>${state.simpleMode ? 'Powtórki' : 'Trening'}</span>
-                ${dueCount > 0 ? `<span class="absolute top-0.5 right-1.5 px-1.5 py-0.2 rounded-full bg-rose-500 text-white text-[9px] font-bold btn-solid">${dueCount}</span>` : ""}
+                <span>Trening</span>
+                ${dueCount > 0 ? `<span class="absolute top-0.5 right-2 px-1.5 py-0.2 rounded-full bg-rose-500 text-white text-[9px] font-bold btn-solid">${dueCount}</span>` : ""}
               </button>
-
-              ${!state.simpleMode ? `
-                <button onclick="navigateTo('dialogues_hub', { resetRoleplay: true })" class="dock-item py-1.5 px-1 rounded-xl flex flex-col items-center justify-center gap-0.5 text-[11px] leading-tight font-semibold whitespace-nowrap transition ${isDialoguesTab ? 'dock-item-active' : ''}">
-                  <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/></svg>
-                  <span>Rozmówki</span>
-                </button>
-              ` : ""}
 
               <button onclick="openOptions()" class="dock-item py-1.5 px-1 rounded-xl flex flex-col items-center justify-center gap-0.5 text-[11px] leading-tight font-semibold whitespace-nowrap transition ${isOptionsTab ? 'dock-item-active' : ''}">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"/></svg>
@@ -7240,309 +7230,93 @@
         <main class="max-w-5xl mx-auto px-3 sm:px-4 py-3.5 sm:py-6 pb-12">
       `;
 
-      // --- WIDOK 0: START (CZYSTY PULPIT WYBORU AKTYWNOŚCI) ---
+      // --- WIDOK 0: START (JEDEN CZYSTY, CZYTELNY PULPIT) ---
       if (state.view === "home") {
-        const isBrandNew = completedStages === 0 && !state.placementResult;
-
-        if (state.simpleMode) {
-          html += `
-            <div class="max-w-2xl mx-auto space-y-4">
-              ${state.pwaInstallReady && !state.pwaInstalled && !state.pwaBannerDismissed ? `
-                <div class="px-4 py-3 rounded-2xl bg-slate-900 border border-indigo-500/40 flex items-center justify-between gap-3">
-                  <div class="min-w-0">
-                    <p class="text-sm font-bold text-white">📲 Zainstaluj na ekranie telefonu</p>
-                  </div>
-                  <div class="flex items-center gap-1.5 shrink-0">
-                    <button onclick="triggerPwaInstall()" class="px-3.5 py-2 rounded-xl bg-indigo-600 text-white text-xs font-bold btn-solid">Zainstaluj</button>
-                    <button onclick="state.pwaBannerDismissed=true; render();" class="px-2 py-2 text-slate-400 text-xs">✕</button>
-                  </div>
+        html += `
+          <div class="max-w-2xl mx-auto space-y-4">
+            ${state.pwaInstallReady && !state.pwaInstalled && !state.pwaBannerDismissed ? `
+              <div class="px-4 py-3 rounded-2xl bg-slate-900 border border-indigo-500/40 flex items-center justify-between gap-3">
+                <p class="text-sm font-bold text-white truncate">📲 Zainstaluj LinguaStep na telefonie</p>
+                <div class="flex items-center gap-1.5 shrink-0">
+                  <button onclick="triggerPwaInstall()" class="px-3.5 py-2 rounded-xl bg-indigo-600 text-white text-xs font-bold btn-solid">Zainstaluj</button>
+                  <button onclick="state.pwaBannerDismissed=true; render();" class="px-2 py-2 text-slate-400 text-xs">✕</button>
                 </div>
-              ` : ""}
-
-              <!-- TRYB PROSTY: PASEK STATUSU -->
-              <div class="flex items-center justify-between gap-2 px-1">
-                <span class="text-xs font-bold text-emerald-400">🌱 Tryb prosty • Poziom ${activeUserLevel}</span>
-                <button onclick="toggleSimpleMode()" class="px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-xs font-bold text-slate-300 transition">
-                  Przełącz na pełny widok
-                </button>
               </div>
+            ` : ""}
 
-              <!-- DUŻA GŁÓWNA KARTA NAUKI NA SAMEJ GÓRZE -->
-              ${nextRec ? `
-                <div class="p-5 sm:p-6 rounded-3xl bg-slate-900 border-2 border-indigo-500/50 card-shadow space-y-4">
-                  <div class="space-y-1">
-                    <span class="inline-block px-2.5 py-1 rounded-lg bg-indigo-600/20 text-indigo-300 text-xs font-extrabold">Twoja aktualna lekcja • ${nextRec.lesson.level}</span>
-                    <h2 class="text-xl sm:text-2xl font-extrabold text-white leading-snug pt-1">${escHtml(nextRec.lesson.title)}</h2>
-                    <p class="text-sm text-slate-400">Następny krok: <b class="text-slate-200">${stageNames[nextRec.nextStage]}</b></p>
-                  </div>
-                  <button onclick="openLesson('${nextRec.lesson.id}', ${nextRec.nextStage})" class="w-full py-4 px-5 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold text-base sm:text-lg btn-solid shadow-lg transition">
-                    ▶ Rozpocznij / Kontynuuj lekcję
-                  </button>
-                  ${dueCount > 0 ? `
-                    <button onclick="startSrsReview('due')" class="w-full py-3.5 px-5 rounded-2xl bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/45 text-emerald-300 font-bold text-sm sm:text-base transition">
-                      🔄 Powtórz zapamiętane słówka (${dueCount} czeka)
-                    </button>
-                  ` : ""}
-                </div>
-              ` : ""}
-
-              <!-- 4 DUŻE, PROSTE KAFELKI -->
-              <div class="grid grid-cols-2 gap-3">
-                <button onclick="navigateTo('dashboard')" class="p-4 sm:p-5 rounded-2xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-left space-y-1.5 card-shadow transition">
-                  <span class="text-2xl block">📖</span>
-                  <p class="text-base font-extrabold text-white">Wszystkie lekcje</p>
-                  <p class="text-xs text-slate-400">Wybierz temat z listy</p>
-                </button>
-                <button onclick="startSrsReview('${dueCount > 0 ? 'due' : 'all_learned'}')" class="p-4 sm:p-5 rounded-2xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-left space-y-1.5 card-shadow transition">
-                  <span class="text-2xl block">🔄</span>
-                  <p class="text-base font-extrabold text-white">Powtórki słówek</p>
-                  <p class="text-xs ${dueCount > 0 ? 'text-sky-400 font-bold' : 'text-slate-400'}">${dueCount > 0 ? `${dueCount} słówek czeka` : `Nauczone: ${learnedCount}`}</p>
-                </button>
-                <button onclick="navigateTo('dialogues_hub', { resetRoleplay: true })" class="p-4 sm:p-5 rounded-2xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-left space-y-1.5 card-shadow transition">
-                  <span class="text-2xl block">💬</span>
-                  <p class="text-base font-extrabold text-white">Rozmówki</p>
-                  <p class="text-xs text-slate-400">Krótkie scenki z życia</p>
-                </button>
-                <button onclick="openLinguaFmHub()" class="p-4 sm:p-5 rounded-2xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-left space-y-1.5 card-shadow transition">
-                  <span class="text-2xl block">🎙️</span>
-                  <p class="text-base font-extrabold text-white">Radio i słuchanie</p>
-                  <p class="text-xs text-slate-400">Odsłuchuj na spokojnie</p>
-                </button>
-              </div>
-
-              ${!state.authUser ? `
-                <div class="px-4 py-3 rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-between gap-2 text-xs">
-                  <span class="text-slate-400">Chcesz zapisać postęp na koncie?</span>
-                  <button onclick="openWelcomeScreen()" class="px-3 py-1.5 rounded-lg bg-slate-800 text-indigo-300 font-bold shrink-0">Zaloguj się →</button>
-                </div>
-              ` : ""}
+            <!-- SPOKOJNY PASEK STATUSU: POZIOM + SERIA (KLIKALNA DO POSTĘPÓW) -->
+            <div class="flex items-center justify-between gap-2 px-1">
+              <span class="text-xs sm:text-sm font-bold text-teal-400">🎯 Poziom ${activeUserLevel} • ${completedLessonsCount}/${allLessons.length} lekcji</span>
+              <button onclick="navigateTo('progress_hub')" class="px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-xs font-bold text-slate-200 flex items-center gap-1.5 transition">
+                <span class="${streakInfo.currentStreak > 0 ? 'text-orange-400' : 'text-slate-400'}">🔥 ${streakInfo.currentStreak}</span>
+                <span class="opacity-30">|</span>
+                <span class="text-blue-400">Lv.${lvlInfo.level}</span>
+              </button>
             </div>
-          `;
-        } else {
-          html += `
-            <div class="space-y-4 sm:space-y-5">
-              <!-- PASEK INSTALACJI APLIKACJI -->
-              ${state.pwaInstallReady && !state.pwaInstalled && !state.pwaBannerDismissed ? `
-                <div class="px-4 py-3 rounded-2xl bg-slate-900 border border-indigo-500/40 flex flex-wrap items-center justify-between gap-3">
-                  <div class="flex items-center gap-3 min-w-0">
-                    <span class="w-9 h-9 rounded-xl bg-indigo-600/20 text-indigo-300 flex items-center justify-center text-base shrink-0">📲</span>
-                    <div class="min-w-0">
-                      <p class="text-xs sm:text-sm font-bold text-white">Zainstaluj LinguaStep na telefonie</p>
-                      <p class="text-[11px] text-slate-400">Ikona na ekranie i pełny ekran bez paska przeglądarki.</p>
-                    </div>
-                  </div>
-                  <div class="flex items-center gap-2 shrink-0">
-                    <button onclick="triggerPwaInstall()" class="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold btn-solid transition">Zainstaluj</button>
-                    <button onclick="state.pwaBannerDismissed=true; render();" class="px-2 py-2 rounded-xl text-slate-400 hover:text-white text-xs">✕</button>
-                  </div>
+
+            <!-- GŁÓWNA KARTA NAUKI -->
+            ${nextRec ? `
+              <div class="p-5 sm:p-6 rounded-3xl bg-slate-900 border-2 border-indigo-500/50 card-shadow space-y-4">
+                <div class="space-y-1">
+                  <span class="inline-block px-2.5 py-1 rounded-lg bg-indigo-600/20 text-indigo-300 text-xs font-extrabold">Twoja aktualna lekcja • ${nextRec.lesson.level}</span>
+                  <h2 class="text-xl sm:text-2xl font-extrabold text-white leading-snug pt-1">${escHtml(nextRec.lesson.title)}</h2>
+                  <p class="text-sm text-slate-400">Następny krok: <b class="text-slate-200">${stageNames[nextRec.nextStage]}</b></p>
                 </div>
-              ` : ""}
-
-              <!-- STREFA 1 (OD RAZU NA GÓRZE): PLAN NA DZIŚ — NAJPIERW NAUKA! -->
-              <div class="p-4 sm:p-6 rounded-3xl bg-slate-900 border border-slate-800 card-shadow space-y-4">
-                <div class="flex flex-wrap items-center justify-between gap-2">
-                  <div>
-                    <h2 class="text-base sm:text-lg font-extrabold text-white">🗓️ Plan na dziś (15 minut)</h2>
-                    <p class="text-xs text-slate-400">Kliknij niebieski przycisk i zacznij naukę od razu.</p>
-                  </div>
-                  <div class="flex items-center gap-2">
-                    <button onclick="toggleSimpleMode()" title="Uproszczony widok z większym tekstem i mniejszą liczbą opcji" class="px-2.5 py-1.5 rounded-xl bg-slate-950 hover:bg-slate-800 border border-emerald-500/35 text-emerald-300 text-[11px] font-bold transition">
-                      🌱 Tryb prosty
-                    </button>
-                  </div>
-                </div>
-
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-                  <!-- GŁÓWNY KROK: NASTĘPNA LEKCJA (PIERWSZY NA TELEFONIE!) -->
-                  ${nextRec ? `
-                    <div class="md:order-2 p-4 rounded-2xl bg-slate-950 border-2 border-indigo-500/50 flex flex-col justify-between gap-3">
-                      <div>
-                        <div class="flex items-center justify-between gap-2">
-                          <span class="text-[11px] font-extrabold uppercase tracking-wider text-indigo-400">Główna lekcja</span>
-                          <span class="px-2 py-0.5 rounded-md text-[11px] font-bold bg-indigo-600/20 text-indigo-300">${nextRec.lesson.level} • Etap ${nextRec.nextStage}/5</span>
-                        </div>
-                        <p class="text-base font-extrabold text-white mt-1.5 line-clamp-2">${escHtml(nextRec.lesson.title)}</p>
-                        <p class="text-xs text-slate-400 mt-1">Kolejny krok: <b class="text-slate-200">${stageNames[nextRec.nextStage]}</b></p>
-                      </div>
-                      <button onclick="openLesson('${nextRec.lesson.id}', ${nextRec.nextStage})" class="w-full py-3 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold text-sm btn-solid transition">
-                        ▶ Kontynuuj lekcję →
-                      </button>
-                    </div>
-                  ` : ""}
-
-                  <!-- KROK POWTÓREK: SRS -->
-                  <div class="md:order-1 p-4 rounded-2xl bg-slate-950 border border-slate-800 flex flex-col justify-between gap-3">
-                    <div>
-                      <div class="flex items-center justify-between gap-2">
-                        <span class="text-[11px] font-extrabold uppercase tracking-wider text-slate-400">Powtórki • 3 min</span>
-                        <span class="px-2 py-0.5 rounded-md text-[11px] font-bold ${dueCount > 0 ? 'bg-sky-500/20 text-sky-300' : 'bg-emerald-500/20 text-emerald-400'}">${dueCount > 0 ? `${dueCount} czeka` : '✓ Na bieżąco'}</span>
-                      </div>
-                      <p class="text-base font-bold text-white mt-1.5">🔄 Powtórki SRS</p>
-                      <p class="text-xs text-slate-400 mt-1">${dueCount > 0 ? 'Odśwież słówka z kolejki, zanim wylecą z pamięci.' : 'Brak zaległych kart — zrób krótką rozgrzewkę albo przejdź do lekcji.'}</p>
-                    </div>
-                    <button onclick="startSrsReview('${dueCount > 0 ? 'due' : 'all_learned'}')" class="w-full py-2.5 px-3 rounded-xl ${dueCount > 0 ? 'bg-sky-600 hover:bg-sky-500 text-white btn-solid' : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700'} font-bold text-xs transition">
-                      ${dueCount > 0 ? `Powtórz teraz (${dueCount}) →` : 'Szybka powtórka →'}
-                    </button>
-                  </div>
-
-                  <!-- KROK 3: MÓWIENIE I AUDIO -->
-                  <div class="md:order-3 p-4 rounded-2xl bg-slate-950 border border-slate-800 flex flex-col justify-between gap-3">
-                    <div>
-                      <div class="flex items-center justify-between gap-2">
-                        <span class="text-[11px] font-extrabold uppercase tracking-wider text-slate-400">Mówienie i Audio</span>
-                        <span class="px-2 py-0.5 rounded-md text-[11px] font-bold bg-emerald-500/20 text-emerald-300">5 min</span>
-                      </div>
-                      <p class="text-base font-bold text-white mt-1.5">🎤 Głos i słuchanie</p>
-                      <p class="text-xs text-slate-400 mt-1">Krótki trening na rozgadanie lub odsłuch w słuchawkach.</p>
-                    </div>
-                    <div class="grid grid-cols-2 gap-1.5">
-                      <button onclick="openSpeakOutHub('ALL')" class="py-2 px-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-bold text-[11px] transition">
-                        🗣️ Pimsleur
-                      </button>
-                      <button onclick="openLinguaFmHub()" class="py-2 px-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-bold text-[11px] transition">
-                        🎙️ Radio FM
-                      </button>
-                      <button onclick="openReflexMode()" class="py-2 px-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-bold text-[11px] transition">
-                        ⚡ Refleks
-                      </button>
-                      <button onclick="openPhoneticsTrainer('drill')" class="py-2 px-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-bold text-[11px] transition">
-                        👄 Fonetyka
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <!-- 4 SZYBKIE SKRÓTY -->
-              <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-                <button onclick="state.lessonsHubTab='stories'; state.activeStoryId=null; navigateTo('dashboard')" class="p-3.5 rounded-2xl bg-slate-900 hover:bg-slate-800 border border-slate-800 hover:border-slate-700 text-xs font-bold text-slate-200 transition text-left flex items-center justify-between">
-                  <span>📚 Czytanki (${READER_STORIES.filter(s => isLevelUnlocked(s.level)).length})</span><span class="text-slate-500">→</span>
+                <button onclick="openLesson('${nextRec.lesson.id}', ${nextRec.nextStage})" class="w-full py-4 px-5 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold text-base sm:text-lg btn-solid shadow-lg transition">
+                  ▶ Rozpocznij / Kontynuuj lekcję
                 </button>
-                <button onclick="state.lessonsHubTab='grammar'; state.activeGrammarQuizId=null; navigateTo('dashboard')" class="p-3.5 rounded-2xl bg-slate-900 hover:bg-slate-800 border border-slate-800 hover:border-slate-700 text-xs font-bold text-slate-200 transition text-left flex items-center justify-between">
-                  <span>📐 Gramatyka (${GRAMMAR_GUIDES.filter(g => isLevelUnlocked(g.level)).length})</span><span class="text-slate-500">→</span>
-                </button>
-                <button onclick="navigateTo('dialogues_hub', { resetRoleplay: true })" class="p-3.5 rounded-2xl bg-slate-900 hover:bg-slate-800 border border-slate-800 hover:border-slate-700 text-xs font-bold text-slate-200 transition text-left flex items-center justify-between">
-                  <span>💬 Rozmówki (${REAL_DIALOGUES.filter(r => isLevelUnlocked(r.level)).length})</span><span class="text-slate-500">→</span>
-                </button>
-                <button onclick="openQuickWordModal()" class="p-3.5 rounded-2xl bg-slate-900 hover:bg-slate-800 border border-slate-800 hover:border-slate-700 text-xs font-bold text-indigo-300 transition text-left flex items-center justify-between">
-                  <span>+ Dodaj słówko</span><span class="text-slate-500">→</span>
-                </button>
-              </div>
-
-              <!-- STREFA 2: KOMPAKTOWY PASEK POSTĘPU (PONIŻEJ NAUKI) -->
-              <div class="p-4 sm:p-5 rounded-3xl bg-slate-900 border border-slate-800 card-shadow">
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 items-center">
-                  <!-- Poziom -->
-                  <div class="space-y-1.5">
-                    <div class="flex items-center justify-between gap-2">
-                      <div class="flex items-center gap-2 min-w-0">
-                        <span class="px-2 py-0.5 rounded-lg bg-indigo-600/20 text-indigo-300 text-xs font-extrabold shrink-0">Poz. ${lvlInfo.level}</span>
-                        <span class="text-sm font-bold text-white truncate">${lvlInfo.icon} ${escHtml(lvlInfo.title)}</span>
-                      </div>
-                      <span class="text-xs font-bold text-slate-400 shrink-0">${formatNum(state.xp)} XP</span>
-                    </div>
-                    <div class="w-full h-1.5 rounded-full bg-slate-800 overflow-hidden">
-                      <div class="h-full bg-indigo-500 rounded-full transition-all" style="width: ${lvlInfo.progressPct}%"></div>
-                    </div>
-                    <p class="text-[11px] text-slate-400">Kurs: <b class="text-slate-200">${completedLessonsCount}/${allLessons.length}</b> lekcji • <b class="text-slate-200">${learnedCount}/${scopedWordsCount}</b> słów (${levelCapLbl})</p>
-                  </div>
-
-                  <!-- Cel na dziś -->
-                  <div class="space-y-1.5 md:border-x md:border-slate-800 md:px-5">
-                    <div class="flex items-center justify-between gap-2">
-                      <span class="text-xs font-bold ${streakInfo.goalDoneToday ? 'text-emerald-400' : 'text-slate-300'}">
-                        ${streakInfo.goalDoneToday ? '✓ Cel dzienny zaliczony' : 'Cel na dziś'}
-                      </span>
-                      <span class="text-xs font-extrabold ${streakInfo.goalDoneToday ? 'text-emerald-300' : 'text-white'}">${streakInfo.todayXp} / ${streakInfo.goal} XP</span>
-                    </div>
-                    <div class="w-full h-1.5 rounded-full bg-slate-800 overflow-hidden">
-                      <div class="h-full ${streakInfo.goalDoneToday ? 'bg-emerald-500' : 'bg-indigo-500'} rounded-full transition-all" style="width: ${streakInfo.goalPct}%"></div>
-                    </div>
-                    <p class="text-[11px] text-slate-400">
-                      ${streakInfo.goalDoneToday
-                        ? 'Świetna robota! Kolejne XP przybliża kolejny poziom.'
-                        : streakInfo.streakAtRisk
-                          ? `Zdobądź <b class="text-amber-300">${streakInfo.remainingToday} XP</b>, aby utrzymać serię.`
-                          : `Jeszcze <b class="text-slate-200">${streakInfo.remainingToday} XP</b> do zaliczenia dnia.`}
-                    </p>
-                  </div>
-
-                  <!-- Seria dni -->
-                  <div class="flex items-center justify-between gap-3">
-                    <div>
-                      <p class="text-sm font-extrabold text-white">🔥 Seria: ${streakInfo.currentStreak} ${streakInfo.currentStreak === 1 ? 'dzień' : 'dni'}</p>
-                      <div class="flex items-center gap-1.5 mt-1.5">
-                        ${streakInfo.last7Days.map(d => `
-                          <div class="flex flex-col items-center gap-0.5" title="${d.key}: ${d.xp} XP">
-                            <span class="w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-bold ${
-                              d.done
-                                ? 'bg-orange-500 text-white'
-                                : d.isToday && d.xp > 0
-                                  ? 'bg-indigo-600/25 border border-indigo-400 text-indigo-300'
-                                  : d.isToday
-                                    ? 'bg-slate-800 border border-slate-600 text-slate-400'
-                                    : 'bg-slate-800 text-slate-500'
-                            }">${d.done ? '✓' : ''}</span>
-                            <span class="text-[9px] ${d.isToday ? 'text-white font-bold' : 'text-slate-400'}">${d.label}</span>
-                          </div>
-                        `).join("")}
-                      </div>
-                    </div>
-                    <button onclick="navigateTo('progress_hub')" class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-bold text-slate-200 shrink-0 transition">
-                      Odznaki →
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              <!-- STREFA 3: TEST POZIOMUJĄCY -->
-              ${isBrandNew ? `
-                <div class="p-4 sm:p-5 rounded-3xl bg-slate-900 border border-indigo-500/35 card-shadow flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                  <div class="flex items-start gap-3 min-w-0">
-                    <div class="w-10 h-10 rounded-2xl bg-indigo-600/20 text-indigo-300 flex items-center justify-center text-lg shrink-0">🧭</div>
-                    <div>
-                      <h2 class="text-sm sm:text-base font-extrabold text-white">Chcesz sprawdzić swój poziom A0–B2?</h2>
-                      <p class="text-xs text-slate-400 mt-0.5">Krótki test (3 min) automatycznie ustawi właściwy poziom w całej aplikacji.</p>
-                    </div>
-                  </div>
-                  <div class="flex flex-col sm:flex-row gap-2 shrink-0">
-                    <button onclick="applyPlacementLevel('A0')" class="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-bold transition">
-                      🌱 Zaczynam od A0
-                    </button>
-                    <button onclick="openPlacementTest(true)" class="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold btn-solid transition">
-                      🧭 Test Poziomujący →
-                    </button>
-                  </div>
-                </div>
-              ` : !state.placementResult ? `
-                <div class="px-4 py-3 rounded-2xl bg-slate-900 border border-slate-800 flex flex-wrap items-center justify-between gap-3">
-                  <div class="flex items-center gap-2.5 min-w-0">
-                    <span class="w-8 h-8 rounded-xl bg-indigo-600/20 text-indigo-300 flex items-center justify-center text-sm shrink-0">🧭</span>
-                    <p class="text-xs sm:text-sm font-bold text-white">Nie wiesz, od którego poziomu zacząć? Zrób 3-minutowy test.</p>
-                  </div>
-                  <button onclick="openPlacementTest(true)" class="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-indigo-300 text-xs font-bold shrink-0 transition">
-                    Sprawdź poziom →
+                ${dueCount > 0 ? `
+                  <button onclick="startSrsReview('due')" class="w-full py-3.5 px-5 rounded-2xl bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/45 text-emerald-300 font-bold text-sm sm:text-base transition">
+                    🔄 Powtórz słówka (${dueCount} czeka)
                   </button>
-                </div>
-              ` : `
-                <div class="px-4 py-3 rounded-2xl bg-slate-900 border border-slate-800 flex flex-wrap items-center justify-between gap-2 text-xs">
-                  <div class="flex items-center gap-2 flex-wrap">
-                    <span class="px-2.5 py-0.5 rounded-lg bg-indigo-600/20 text-indigo-300 font-extrabold">🧭 Test: ${escHtml(state.placementResult.level)}</span>
-                    <span class="text-slate-400">Wynik: <b class="text-slate-200">${state.placementResult.score}/${state.placementResult.total}</b> (${escHtml(state.placementResult.date)})</span>
-                  </div>
-                  <button onclick="openPlacementTest(true)" class="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold transition">Powtórz test</button>
-                </div>
-              `}
+                ` : ""}
+              </div>
+            ` : ""}
 
-              ${!state.authUser ? `
-                <div class="px-4 py-3 rounded-2xl bg-slate-900 border border-slate-800 flex flex-wrap items-center justify-between gap-2 text-xs">
-                  <span class="text-slate-400">👤 Korzystasz jako <b class="text-slate-200">Gość</b> — zaloguj się, aby synchronizować postęp między urządzeniami.</span>
-                  <button onclick="openWelcomeScreen()" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-indigo-300 font-bold shrink-0 transition">Zaloguj się →</button>
-                </div>
-              ` : ""}
+            <!-- 4 DUŻE, PRZEJRZYSTE KAFELKI -->
+            <div class="grid grid-cols-2 gap-3">
+              <button onclick="navigateTo('dashboard')" class="p-4 sm:p-5 rounded-2xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-left space-y-1.5 card-shadow transition">
+                <span class="text-2xl block">📖</span>
+                <p class="text-base font-extrabold text-white">Wszystkie lekcje</p>
+                <p class="text-xs text-slate-400">Kurs, czytanki i gramatyka</p>
+              </button>
+              <button onclick="startSrsReview('${dueCount > 0 ? 'due' : 'all_learned'}')" class="p-4 sm:p-5 rounded-2xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-left space-y-1.5 card-shadow transition">
+                <span class="text-2xl block">🔄</span>
+                <p class="text-base font-extrabold text-white">Powtórki słówek</p>
+                <p class="text-xs ${dueCount > 0 ? 'text-sky-400 font-bold' : 'text-slate-400'}">${dueCount > 0 ? `${dueCount} słówek czeka` : `Nauczone: ${learnedCount}`}</p>
+              </button>
+              <button onclick="navigateTo('dialogues_hub', { resetRoleplay: true })" class="p-4 sm:p-5 rounded-2xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-left space-y-1.5 card-shadow transition">
+                <span class="text-2xl block">💬</span>
+                <p class="text-base font-extrabold text-white">Rozmówki</p>
+                <p class="text-xs text-slate-400">Scenki z życia (A0–B2)</p>
+              </button>
+              <button onclick="openLinguaFmHub()" class="p-4 sm:p-5 rounded-2xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-left space-y-1.5 card-shadow transition">
+                <span class="text-2xl block">🎙️</span>
+                <p class="text-base font-extrabold text-white">Radio i słuchanie</p>
+                <p class="text-xs text-slate-400">Audycje LinguaFM</p>
+              </button>
             </div>
-          `;
-        }
+
+            <!-- CZYSTY SKRÓT DO POZOSTAŁYCH TRYBÓW TRENINGU -->
+            <button onclick="navigateTo('review_hub', { reviewMode: 'menu' })" class="w-full p-4 rounded-2xl bg-slate-900 hover:bg-slate-800 border border-slate-800 flex items-center justify-between gap-3 text-left card-shadow transition">
+              <div class="flex items-center gap-3 min-w-0">
+                <span class="text-xl shrink-0">🎯</span>
+                <div class="min-w-0">
+                  <p class="text-sm sm:text-base font-extrabold text-white">Więcej treningu i gier</p>
+                  <p class="text-xs text-slate-400 truncate">Mów na głos, Fonetyka, Refleks, Czasowniki, Gry</p>
+                </div>
+              </div>
+              <span class="text-indigo-400 font-bold text-base shrink-0">→</span>
+            </button>
+
+            ${!state.authUser ? `
+              <div class="px-4 py-3 rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-between gap-2 text-xs">
+                <span class="text-slate-400">Chcesz zapisać postęp na koncie?</span>
+                <button onclick="openWelcomeScreen()" class="px-3 py-1.5 rounded-lg bg-slate-800 text-indigo-300 font-bold shrink-0">Zaloguj się →</button>
+              </div>
+            ` : ""}
+          </div>
+        `;
       }
       // --- WIDOK 1: LEKCJE + CZYTANKI + ŚCIĄGAWKI GRAMATYCZNE ---
       else if (state.view === "dashboard") {
@@ -8299,27 +8073,51 @@
                       : `<button onclick="triggerPwaInstall()" class="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-indigo-300 text-xs font-bold shrink-0 transition">📲 Zainstaluj</button>`}
                   </div>
 
-                  <!-- Tryb prosty + Tłumaczenie w lekcjach -->
-                  <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div class="p-3.5 rounded-2xl bg-slate-950 border ${state.simpleMode ? 'border-emerald-500/50' : 'border-slate-800'} space-y-2.5">
+                  <!-- Szybki skrót do Postępów i Odznak -->
+                  <button onclick="navigateTo('progress_hub')" class="w-full p-4 rounded-2xl bg-slate-950 hover:bg-slate-800/80 border border-slate-800 flex items-center justify-between gap-3 text-left transition">
+                    <div class="flex items-center gap-3">
+                      <span class="text-2xl">🏆</span>
                       <div>
-                        <p class="text-xs font-extrabold text-white">🌱 Tryb prosty (czytelniejszy ekran)</p>
-                        <p class="text-[11px] text-slate-400 mt-0.5">Większy tekst, prostsze menu i 2 przyciski oceny zamiast 4.</p>
-                      </div>
-                      <div class="grid grid-cols-2 gap-2">
-                        <button onclick="setSimpleMode(true)" class="py-2 px-2 rounded-xl border font-bold text-xs transition ${state.simpleMode ? 'bg-emerald-600 border-emerald-400 text-white btn-solid' : 'bg-slate-900 border-slate-800 text-slate-300 hover:border-slate-700'}">Włączony</button>
-                        <button onclick="setSimpleMode(false)" class="py-2 px-2 rounded-xl border font-bold text-xs transition ${!state.simpleMode ? 'bg-indigo-600 border-indigo-400 text-white btn-solid' : 'bg-slate-900 border-slate-800 text-slate-300 hover:border-slate-700'}">Pełny widok</button>
+                        <p class="text-sm font-extrabold text-white">Moje postępy, seria i odznaki</p>
+                        <p class="text-xs text-slate-400">🔥 Seria: ${streakInfo.currentStreak} dni • Poziom ${lvlInfo.level} (${state.xp} XP)</p>
                       </div>
                     </div>
-                    <div class="p-3.5 rounded-2xl bg-slate-950 border ${state.showTranslationAlways ? 'border-emerald-500/50' : 'border-slate-800'} space-y-2.5">
+                    <span class="text-indigo-400 font-bold">→</span>
+                  </button>
+
+                  <!-- Rozmiar tekstu + Przyciski oceny -->
+                  <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div class="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 space-y-2.5">
                       <div>
-                        <p class="text-xs font-extrabold text-white">👁️ Tłumaczenie w lekcjach</p>
-                        <p class="text-[11px] text-slate-400 mt-0.5">Czy polskie znaczenie słówka ma być widoczne od razu.</p>
+                        <p class="text-xs font-extrabold text-white">🔤 Rozmiar napisów</p>
+                        <p class="text-[11px] text-slate-400 mt-0.5">Wygodna, duża czcionka w całej aplikacji.</p>
                       </div>
                       <div class="grid grid-cols-2 gap-2">
-                        <button onclick="state.showTranslationAlways=true; saveState(); render();" class="py-2 px-2 rounded-xl border font-bold text-xs transition ${state.showTranslationAlways ? 'bg-emerald-600 border-emerald-400 text-white btn-solid' : 'bg-slate-900 border-slate-800 text-slate-300 hover:border-slate-700'}">Od razu widoczne</button>
-                        <button onclick="state.showTranslationAlways=false; state.cardFlipped=false; saveState(); render();" class="py-2 px-2 rounded-xl border font-bold text-xs transition ${!state.showTranslationAlways ? 'bg-indigo-600 border-indigo-400 text-white btn-solid' : 'bg-slate-900 border-slate-800 text-slate-300 hover:border-slate-700'}">Ukryj (test)</button>
+                        <button onclick="setTextSize('large')" class="py-2 px-2 rounded-xl border font-bold text-xs transition ${state.textSize !== 'normal' ? 'bg-indigo-600 border-indigo-400 text-white btn-solid' : 'bg-slate-900 border-slate-800 text-slate-300 hover:border-slate-700'}">Duży (domyślny)</button>
+                        <button onclick="setTextSize('normal')" class="py-2 px-2 rounded-xl border font-bold text-xs transition ${state.textSize === 'normal' ? 'bg-indigo-600 border-indigo-400 text-white btn-solid' : 'bg-slate-900 border-slate-800 text-slate-300 hover:border-slate-700'}">Standardowy</button>
                       </div>
+                    </div>
+                    <div class="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 space-y-2.5">
+                      <div>
+                        <p class="text-xs font-extrabold text-white">✅ Ocena na fiszkach</p>
+                        <p class="text-[11px] text-slate-400 mt-0.5">Wybierz proste 2 przyciski lub 4 klasyczne (Anki).</p>
+                      </div>
+                      <div class="grid grid-cols-2 gap-2">
+                        <button onclick="setRatingStyle('simple')" class="py-2 px-2 rounded-xl border font-bold text-xs transition ${state.ratingStyle !== 'classic' ? 'bg-emerald-600 border-emerald-400 text-white btn-solid' : 'bg-slate-900 border-slate-800 text-slate-300 hover:border-slate-700'}">2 proste</button>
+                        <button onclick="setRatingStyle('classic')" class="py-2 px-2 rounded-xl border font-bold text-xs transition ${state.ratingStyle === 'classic' ? 'bg-indigo-600 border-indigo-400 text-white btn-solid' : 'bg-slate-900 border-slate-800 text-slate-300 hover:border-slate-700'}">4 (Anki)</button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Tłumaczenie w lekcjach -->
+                  <div class="p-3.5 rounded-2xl bg-slate-950 border ${state.showTranslationAlways ? 'border-emerald-500/40' : 'border-slate-800'} flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p class="text-xs font-extrabold text-white">👁️ Tłumaczenie polskie w lekcjach</p>
+                      <p class="text-[11px] text-slate-400 mt-0.5">Czy polskie znaczenie ma być widoczne od razu na karcie.</p>
+                    </div>
+                    <div class="grid grid-cols-2 gap-2 w-full sm:w-auto">
+                      <button onclick="state.showTranslationAlways=true; saveState(); render();" class="py-2 px-3 rounded-xl border font-bold text-xs transition ${state.showTranslationAlways ? 'bg-emerald-600 border-emerald-400 text-white btn-solid' : 'bg-slate-900 border-slate-800 text-slate-300 hover:border-slate-700'}">Od razu widoczne</button>
+                      <button onclick="state.showTranslationAlways=false; state.cardFlipped=false; saveState(); render();" class="py-2 px-3 rounded-xl border font-bold text-xs transition ${!state.showTranslationAlways ? 'bg-indigo-600 border-indigo-400 text-white btn-solid' : 'bg-slate-900 border-slate-800 text-slate-300 hover:border-slate-700'}">Ukryj (test)</button>
                     </div>
                   </div>
 
@@ -8588,465 +8386,179 @@
             "review";
 
           html += `
-            <div class="flex flex-wrap items-center justify-between gap-3 mb-5">
-              <div>
-                <h2 class="text-2xl font-extrabold text-white">Centrum Treningu</h2>
-                <p class="text-xs sm:text-sm text-slate-400 mt-0.5">
-                  ${tTab === "review"
-                    ? "Powtórki SRS, sprawdzian wiedzy, test poziomujący i bank trudnych słówek."
-                    : tTab === "speaking"
-                      ? "Trening głosu bez blokady: metoda Pimsleura (30 sesji A0–A2), refleks 5s, fonetyka i shadowing."
-                      : tTab === "audio"
-                        ? "Nauka w drodze, na spacerze i na słuchawkach — bez patrzenia w ekran."
-                        : "Czasowniki nieregularne, pisanie wiadomości oraz gry na pamięć i czas."}
-                </p>
+            <div class="max-w-2xl mx-auto space-y-4">
+              <div class="flex items-center justify-between gap-2 px-1">
+                <div>
+                  <h2 class="text-xl sm:text-2xl font-extrabold text-white">Trening</h2>
+                  <p class="text-xs text-slate-400 mt-0.5">Poziom ${activeUserLevel} • Nauczonych słówek: <b class="text-slate-200">${learnedCount}</b></p>
+                </div>
+                <button onclick="openQuickWordModal()" class="px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-xs font-bold text-indigo-300 transition shrink-0">+ Słówko</button>
               </div>
-              <button onclick="openQuickWordModal()" class="px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-xs font-bold text-indigo-300 transition shrink-0">+ Słówko</button>
-            </div>
 
-            <!-- 4 LOGICZNE KATEGORIE TRENINGU -->
-            <div class="grid grid-cols-2 sm:grid-cols-4 gap-1.5 bg-slate-900 p-1.5 rounded-2xl border border-slate-800 text-xs font-bold mb-5">
-              <button onclick="state.trainingMenuTab='review'; render();" class="px-3 py-2.5 rounded-xl transition flex items-center justify-center gap-1.5 ${tTab === 'review' ? 'bg-indigo-600 text-white btn-solid' : 'text-slate-300 hover:bg-slate-800'}">
-                <span>🔄 Powtórki i Testy</span>
-                ${dueCount > 0 ? `<span class="px-1.5 py-0.5 rounded-full text-[10px] leading-none ${tTab === 'review' ? 'bg-white/20 text-white' : 'bg-rose-500/20 text-rose-300'}">${dueCount}</span>` : ""}
-              </button>
-              <button onclick="state.trainingMenuTab='speaking'; render();" class="px-3 py-2.5 rounded-xl transition flex items-center justify-center gap-1.5 ${tTab === 'speaking' ? 'bg-indigo-600 text-white btn-solid' : 'text-slate-300 hover:bg-slate-800'}">
-                <span>🎤 Mówienie</span>
-              </button>
-              <button onclick="state.trainingMenuTab='audio'; render();" class="px-3 py-2.5 rounded-xl transition flex items-center justify-center gap-1.5 ${tTab === 'audio' ? 'bg-indigo-600 text-white btn-solid' : 'text-slate-300 hover:bg-slate-800'}">
-                <span>🎧 Audio w biegu</span>
-              </button>
-              <button onclick="state.trainingMenuTab='workshop'; render();" class="px-3 py-2.5 rounded-xl transition flex items-center justify-center gap-1.5 ${tTab === 'workshop' ? 'bg-indigo-600 text-white btn-solid' : 'text-slate-300 hover:bg-slate-800'}">
-                <span>🎮 Warsztat i Gry</span>
-              </button>
-            </div>
-
-            <!-- SPOKOJNY PASEK STATYSTYK -->
-            <div class="grid grid-cols-3 gap-3 mb-5">
-              <div class="bg-slate-900 border border-slate-800 rounded-2xl p-3.5 sm:p-4">
-                <p class="text-[11px] sm:text-xs text-slate-400">Nauczone słówka</p>
-                <p class="text-lg sm:text-2xl font-extrabold text-white mt-0.5">${learnedCount} <span class="text-xs font-normal text-slate-500">/ ${totalWordsCount}</span></p>
+              <!-- 4 PROSTE KATEGORIE TRENINGU -->
+              <div class="grid grid-cols-2 sm:grid-cols-4 gap-1.5 bg-slate-900 p-1.5 rounded-2xl border border-slate-800 text-xs font-bold">
+                <button onclick="state.trainingMenuTab='review'; render();" class="px-2.5 py-2.5 rounded-xl transition flex items-center justify-center gap-1.5 ${tTab === 'review' ? 'bg-indigo-600 text-white btn-solid' : 'text-slate-300 hover:bg-slate-800'}">
+                  <span>🔄 Powtórki</span>
+                  ${dueCount > 0 ? `<span class="px-1.5 py-0.5 rounded-full text-[10px] leading-none ${tTab === 'review' ? 'bg-white/20 text-white' : 'bg-rose-500/20 text-rose-300'}">${dueCount}</span>` : ""}
+                </button>
+                <button onclick="state.trainingMenuTab='speaking'; render();" class="px-2.5 py-2.5 rounded-xl transition flex items-center justify-center gap-1.5 ${tTab === 'speaking' ? 'bg-indigo-600 text-white btn-solid' : 'text-slate-300 hover:bg-slate-800'}">
+                  <span>🎤 Mówienie</span>
+                </button>
+                <button onclick="state.trainingMenuTab='audio'; render();" class="px-2.5 py-2.5 rounded-xl transition flex items-center justify-center gap-1.5 ${tTab === 'audio' ? 'bg-indigo-600 text-white btn-solid' : 'text-slate-300 hover:bg-slate-800'}">
+                  <span>🎧 Audio</span>
+                </button>
+                <button onclick="state.trainingMenuTab='workshop'; render();" class="px-2.5 py-2.5 rounded-xl transition flex items-center justify-center gap-1.5 ${tTab === 'workshop' ? 'bg-indigo-600 text-white btn-solid' : 'text-slate-300 hover:bg-slate-800'}">
+                  <span>🎮 Gry i Baza</span>
+                </button>
               </div>
-              <div class="bg-slate-900 border border-slate-800 rounded-2xl p-3.5 sm:p-4">
-                <p class="text-[11px] sm:text-xs text-slate-400">Do powtórki SRS</p>
-                <p class="text-lg sm:text-2xl font-extrabold ${dueCount > 0 ? 'text-sky-400' : 'text-emerald-400'} mt-0.5">${dueCount}</p>
-              </div>
-              <button onclick="navigateTo('hard_words')" class="text-left bg-slate-900 hover:bg-slate-800 border border-slate-800 hover:border-slate-700 rounded-2xl p-3.5 sm:p-4 transition">
-                <p class="text-[11px] sm:text-xs text-slate-400 flex items-center justify-between"><span>Trudne słówka</span><span class="hidden sm:inline text-slate-500">→</span></p>
-                <p class="text-lg sm:text-2xl font-extrabold text-amber-400 mt-0.5">${state.hardWords.length}</p>
-              </button>
-            </div>
 
-            ${tTab === "review" ? `
-              <!-- ZAKŁADKA 1: POWTÓRKI I TESTY (SYMETRYCZNE 2×2) -->
-              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <!-- KARTA 1: SRS -->
-                <div class="bg-slate-900 border border-slate-800 hover:border-slate-700 rounded-3xl p-5 sm:p-6 card-shadow flex flex-col justify-between space-y-5 transition">
-                  <div>
-                    <div class="flex items-center justify-between gap-2 flex-wrap">
-                      <div class="flex items-center gap-2.5">
-                        <span class="w-9 h-9 rounded-xl bg-sky-500/15 text-sky-300 flex items-center justify-center text-lg">🔄</span>
-                        <span class="text-xs font-bold text-sky-300">System SRS</span>
-                      </div>
-                      <div class="flex items-center gap-1 bg-slate-950 p-0.5 rounded-lg border border-slate-800 text-[11px] font-bold">
-                        ${[5, 10, 15].map(sz => `
-                          <button onclick="state.srsBatchSize=${sz}; saveState(); render();" class="px-2 py-1 rounded-md transition ${state.srsBatchSize === sz ? 'bg-indigo-600 text-white btn-solid' : 'text-slate-400 hover:text-white'}">${sz} kart</button>
-                        `).join("")}
-                      </div>
+              ${tTab === "review" ? `
+                <!-- KARTA GŁÓWNA: POWTÓRKI SRS -->
+                <div class="p-5 sm:p-6 rounded-3xl bg-slate-900 border-2 border-indigo-500/45 card-shadow space-y-4">
+                  <div class="flex items-center justify-between gap-2 flex-wrap">
+                    <div>
+                      <h3 class="text-lg sm:text-xl font-extrabold text-white">🔄 Powtórki słówek (SRS)</h3>
+                      <p class="text-xs sm:text-sm text-slate-400 mt-0.5">${dueCount > 0 ? `${dueCount} słówek czeka na powtórkę` : `Wszystko na bieżąco! Nauczone: ${learnedCount}`}</p>
                     </div>
-                    <h3 class="text-lg font-extrabold text-white mt-3">Inteligentne Powtórki (SRS)</h3>
-                    <p class="text-xs sm:text-sm text-slate-400 mt-1">Krótkie serie po ${state.srsBatchSize} fiszek z automatycznymi odstępami i sprawdzaniem wymowy.</p>
+                    <div class="flex items-center gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs font-bold">
+                      ${[5, 10, 15].map(sz => `
+                        <button onclick="state.srsBatchSize=${sz}; saveState(); render();" class="px-2.5 py-1 rounded-lg transition ${state.srsBatchSize === sz ? 'bg-indigo-600 text-white btn-solid' : 'text-slate-400 hover:text-white'}">${sz}</button>
+                      `).join("")}
+                    </div>
                   </div>
-                  <div class="space-y-2">
-                    <button onclick="startSrsReview('due')" class="w-full py-3 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-sm btn-solid transition">
-                      Powtórz zaległe (do ${state.srsBatchSize} z ${dueCount})
+                  <button onclick="startSrsReview('${dueCount > 0 ? 'due' : 'all_learned'}')" class="w-full py-3.5 px-5 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold text-base btn-solid shadow-md transition">
+                    ▶ ${dueCount > 0 ? `Powtórz teraz (${Math.min(state.srsBatchSize, dueCount)} kart)` : `Przejrzyj nauczone (${state.srsBatchSize} kart)`}
+                  </button>
+                  <div class="grid grid-cols-2 gap-2.5">
+                    <button onclick="startSrsReview('all_learned')" class="py-2.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs sm:text-sm transition">
+                      Wszystkie nauczone
                     </button>
-                    <div class="grid grid-cols-2 gap-2">
-                      <button onclick="startSrsReview('all_learned')" class="py-2 px-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-xs border border-slate-700 transition">
-                        Nauczone (${state.srsBatchSize})
-                      </button>
-                      <button onclick="startSrsReview('hard')" class="py-2 px-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-300 font-semibold text-xs border border-slate-700 transition">
-                        Trudne (${state.hardWords.length})
-                      </button>
-                    </div>
+                    <button onclick="startSrsReview('hard')" class="py-2.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-300 font-bold text-xs sm:text-sm transition">
+                      🔥 Tylko trudne (${state.hardWords.length})
+                    </button>
                   </div>
                 </div>
 
-                <!-- KARTA 2: SPRAWDZIAN WIEDZY -->
-                <div class="bg-slate-900 border border-slate-800 hover:border-slate-700 rounded-3xl p-5 sm:p-6 card-shadow flex flex-col justify-between space-y-5 transition">
-                  <div>
-                    <div class="flex items-center justify-between gap-2">
-                      <div class="flex items-center gap-2.5">
-                        <span class="w-9 h-9 rounded-xl bg-emerald-500/15 text-emerald-300 flex items-center justify-center text-lg">📝</span>
-                        <span class="text-xs font-bold text-emerald-300">Egzamin mieszany</span>
-                      </div>
-                      <span class="text-xs font-bold text-slate-400">3 typy zadań</span>
-                    </div>
-                    <h3 class="text-lg font-extrabold text-white mt-3">Sprawdzian Wiedzy</h3>
-                    <p class="text-xs sm:text-sm text-slate-400 mt-1">Kontekst, pisownia ze słuchu i ocena wymowy na wybranym poziomie.</p>
-                  </div>
-                  <div class="space-y-3">
-                    <div class="grid grid-cols-2 gap-2">
+                <!-- 3 PROSTE KAFELKI -->
+                <div class="grid grid-cols-2 gap-3">
+                  <button onclick="startKnowledgeQuiz()" class="p-4 sm:p-5 rounded-2xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-left space-y-1.5 card-shadow transition">
+                    <span class="text-2xl block">📝</span>
+                    <p class="text-base font-extrabold text-white">Sprawdzian</p>
+                    <p class="text-xs text-slate-400">Krótki test (${state.quizLength} pytań)</p>
+                  </button>
+                  <button onclick="openPlacementTest(true)" class="p-4 sm:p-5 rounded-2xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-left space-y-1.5 card-shadow transition">
+                    <span class="text-2xl block">🧭</span>
+                    <p class="text-base font-extrabold text-white">Test poziomu</p>
+                    <p class="text-xs ${state.placementResult ? 'text-emerald-400 font-bold' : 'text-slate-400'}">${state.placementResult ? 'Wynik: ' + escHtml(state.placementResult.level) : '15 pytań • 3 min'}</p>
+                  </button>
+                  <button onclick="navigateTo('hard_words')" class="col-span-2 p-4 sm:p-5 rounded-2xl bg-slate-900 hover:bg-slate-800 border border-slate-800 flex items-center justify-between gap-3 text-left card-shadow transition">
+                    <div class="flex items-center gap-3">
+                      <span class="text-2xl">🔥</span>
                       <div>
-                        <label class="block text-[11px] text-slate-400 mb-1">Zakres</label>
-                        <select onchange="state.quizScope = this.value; render();" class="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white text-xs font-semibold">
-                          ${renderCardScopeOptions(state.quizScope, { includeHard: false, learnedCount, scopedTotal: scopedWordsCount })}
-                        </select>
-                      </div>
-                      <div>
-                        <label class="block text-[11px] text-slate-400 mb-1">Pytań</label>
-                        <select onchange="state.quizLength = Number(this.value); render();" class="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white text-xs font-semibold">
-                          <option value="6" ${state.quizLength===6?'selected':''}>6 pytań</option>
-                          <option value="10" ${state.quizLength===10?'selected':''}>10 pytań</option>
-                          <option value="20" ${state.quizLength===20?'selected':''}>20 pytań</option>
-                        </select>
+                        <p class="text-base font-extrabold text-white">Lista trudnych słówek</p>
+                        <p class="text-xs text-slate-400">Zapisanych: ${state.hardWords.length} słówek</p>
                       </div>
                     </div>
-                    <button onclick="startKnowledgeQuiz()" class="w-full py-3 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-sm btn-solid transition">
-                      Rozpocznij Sprawdzian
-                    </button>
-                  </div>
-                </div>
-
-                <!-- KARTA 3: TEST POZIOMUJĄCY -->
-                <div class="bg-slate-900 border border-slate-800 hover:border-slate-700 rounded-3xl p-5 sm:p-6 card-shadow flex flex-col justify-between space-y-5 transition">
-                  <div>
-                    <div class="flex items-center justify-between gap-2">
-                      <div class="flex items-center gap-2.5">
-                        <span class="w-9 h-9 rounded-xl bg-indigo-500/15 text-indigo-300 flex items-center justify-center text-lg">🧭</span>
-                        <span class="text-xs font-bold text-indigo-300">Diagnoza A0–B2</span>
-                      </div>
-                      <span class="text-xs font-bold ${state.placementResult ? 'text-emerald-400' : 'text-slate-400'}">${state.placementResult ? 'Wynik: ' + escHtml(state.placementResult.level) : '15 pytań • 3 min'}</span>
-                    </div>
-                    <h3 class="text-lg font-extrabold text-white mt-3">Test Poziomujący</h3>
-                    <p class="text-xs sm:text-sm text-slate-400 mt-1">Wskaże dokładny punkt startowy ze słownictwa, gramatyki i słuchania.</p>
-                  </div>
-                  <div class="flex gap-2">
-                    <button onclick="openPlacementTest(true)" class="flex-1 py-3 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-sm btn-solid transition">
-                      ${state.placementResult ? 'Powtórz test' : 'Sprawdź poziom'}
-                    </button>
-                    ${state.placementResult ? `
-                      <button onclick="openPlacementTest(false)" class="px-3.5 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs border border-slate-700 transition">
-                        Wynik (${state.placementResult.score}/${state.placementResult.total})
-                      </button>
-                    ` : ""}
-                  </div>
-                </div>
-
-                <!-- KARTA 4: BANK TRUDNYCH SŁÓWEK -->
-                <div class="bg-slate-900 border border-slate-800 hover:border-slate-700 rounded-3xl p-5 sm:p-6 card-shadow flex flex-col justify-between space-y-5 transition">
-                  <div>
-                    <div class="flex items-center justify-between gap-2">
-                      <div class="flex items-center gap-2.5">
-                        <span class="w-9 h-9 rounded-xl bg-amber-500/15 text-amber-300 flex items-center justify-center text-lg">🔥</span>
-                        <span class="text-xs font-bold text-amber-300">Słabe punkty</span>
-                      </div>
-                      <span class="text-xs font-bold text-amber-300">${state.hardWords.length} słówek</span>
-                    </div>
-                    <h3 class="text-lg font-extrabold text-white mt-3">Bank Trudnych Słówek</h3>
-                    <p class="text-xs sm:text-sm text-slate-400 mt-1">Wszystkie wyrazy oznaczone jako trudne — przejrzyj je lub przećwicz naraz.</p>
-                  </div>
-                  <div class="grid grid-cols-2 gap-2">
-                    <button onclick="navigateTo('hard_words')" class="py-3 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs sm:text-sm border border-slate-700 transition">
-                      Otwórz listę
-                    </button>
-                    <button onclick="startSrsReview('hard')" class="py-3 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs sm:text-sm btn-solid transition">
-                      Ćwicz trudne
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              ${state.quizHistory && state.quizHistory.length > 0 ? `
-                <div class="mt-5 bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5">
-                  <h4 class="text-xs font-extrabold uppercase tracking-wider text-slate-400 mb-3">📊 Ostatnie wyniki sprawdzianów</h4>
-                  <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2.5">
-                    ${state.quizHistory.map(h => `
-                      <div class="p-3 rounded-xl bg-slate-950 border border-slate-800 text-xs flex items-center justify-between">
-                        <div>
-                          <p class="font-bold text-slate-200">${escHtml(h.scope)}</p>
-                          <p class="text-slate-500">${escHtml(h.date)}</p>
-                        </div>
-                        <span class="px-2 py-1 rounded-lg font-bold ${h.pct >= 80 ? 'bg-emerald-500/20 text-emerald-300' : h.pct >= 50 ? 'bg-amber-500/20 text-amber-300' : 'bg-rose-500/20 text-rose-300'}">${h.score}/${h.total} (${h.pct}%)</span>
-                      </div>
-                    `).join("")}
-                  </div>
-                </div>
-              ` : ""}
-
-            ` : tTab === "speaking" ? `
-              <!-- ZAKŁADKA 2: MÓWIENIE (SYMETRYCZNE 2×2) -->
-              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <!-- POWIEDZ TO NA GŁOS (METODA PIMSLEURA A0–A2) -->
-                <div class="bg-slate-900 border border-slate-800 hover:border-slate-700 rounded-3xl p-5 sm:p-6 card-shadow flex flex-col justify-between space-y-5 transition">
-                  <div>
-                    <div class="flex items-center justify-between gap-2">
-                      <div class="flex items-center gap-2">
-                        <span class="w-9 h-9 rounded-xl bg-emerald-500/15 text-emerald-300 flex items-center justify-center text-lg">🗣️</span>
-                        <span class="text-xs font-bold text-emerald-300">Pimsleur A0–A2</span>
-                      </div>
-                      <span class="text-xs font-bold text-slate-400">${(state.completedSpeakOut || []).length}/${SPEAK_OUT_SESSIONS.length} sesji</span>
-                    </div>
-                    <h3 class="text-lg font-extrabold text-white mt-3">Powiedz to na głos (Budowanie zdań)</h3>
-                    <p class="text-xs sm:text-sm text-slate-400 mt-1">30 sesji mówienia klocek po klocku (A0–A2): wskazówka PL → pauza na Twój głos → wzorzec EN. Działa też w słuchawkach.</p>
-                  </div>
-                  <div class="grid grid-cols-2 gap-2">
-                    <button onclick="openSpeakOutHub('ALL')" class="py-3 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs sm:text-sm btn-solid transition">
-                      🗣️ Wybierz sesję (${SPEAK_OUT_SESSIONS.length})
-                    </button>
-                    <button onclick="openSpeakOutHub(state.levelFilter === 'A0' || state.levelFilter === 'A1' || state.levelFilter === 'A2' ? state.levelFilter : 'A0')" class="py-3 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs sm:text-sm border border-slate-700 transition">
-                      🎯 Start A0–A2
-                    </button>
-                  </div>
-                </div>
-                <!-- FONETYKA -->
-                <div class="bg-slate-900 border border-slate-800 hover:border-slate-700 rounded-3xl p-5 sm:p-6 card-shadow flex flex-col justify-between space-y-5 transition">
-                  <div>
-                    <div class="flex items-center justify-between gap-2">
-                      <span class="w-9 h-9 rounded-xl bg-cyan-500/15 text-cyan-300 flex items-center justify-center text-lg">👄</span>
-                      <span class="text-xs font-bold text-cyan-300">${(state.masteredPhonetics || []).length}/${PHONETICS_DRILLS.length}</span>
-                    </div>
-                    <h3 class="text-lg font-extrabold text-white mt-3">Trener Fonetyki („Powiedz...”)</h3>
-                    <p class="text-xs sm:text-sm text-slate-400 mt-1">8 pułapek Polaków (TH, ship/sheep, bad/bed, W/V, R, -ed, nieme litery) z mikrofonem.</p>
-                  </div>
-                  <div class="space-y-2">
-                    <button onclick="openPhoneticsTrainer('drill')" class="w-full py-3 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-sm btn-solid transition">
-                      🎤 Powiedz na głos
-                    </button>
-                    <button onclick="openPhoneticsTrainer('guide')" class="w-full py-2.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs border border-slate-700 transition">
-                      📋 8 pułapek Polaków
-                    </button>
-                  </div>
-                </div>
-
-                <!-- REFLEKS 5s -->
-                <div class="bg-slate-900 border border-slate-800 hover:border-slate-700 rounded-3xl p-5 sm:p-6 card-shadow flex flex-col justify-between space-y-5 transition">
-                  <div>
-                    <div class="flex items-center justify-between gap-2">
-                      <span class="w-9 h-9 rounded-xl bg-amber-500/15 text-amber-300 flex items-center justify-center text-lg">⚡</span>
-                      <span class="text-xs font-bold text-amber-300">🏆 ${state.reflexBestScore || 0}/8</span>
-                    </div>
-                    <h3 class="text-lg font-extrabold text-white mt-3">Refleks w 5 sekund</h3>
-                    <p class="text-xs sm:text-sm text-slate-400 mt-1">Krótka sytuacja po polsku i natychmiastowa reakcja na głos bez tłumaczenia w głowie.</p>
-                  </div>
-                  <div class="space-y-2.5">
-                    <div class="grid grid-cols-2 gap-2">
-                      <select onchange="state.reflexLevel = this.value; render();" class="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white text-xs font-semibold">
-                        <option value="ALL" ${(state.reflexLevel||'ALL')==='ALL'?'selected':''}>${levelCapLbl} (${REFLEX_PROMPTS.filter(p => isLevelUnlocked(p.level)).length})</option>
-                        ${getAllowedLevels().map(lv => `<option value="${lv}" ${state.reflexLevel===lv?'selected':''}>Poziom ${lv}</option>`).join("")}
-                      </select>
-                      <select onchange="state.reflexSeconds = Number(this.value); saveState(false); render();" class="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white text-xs font-semibold">
-                        <option value="5" ${state.reflexSeconds===5?'selected':''}>5 sek (Pro)</option>
-                        <option value="7" ${(state.reflexSeconds||7)===7?'selected':''}>7 sek (Std)</option>
-                        <option value="10" ${state.reflexSeconds===10?'selected':''}>10 sek</option>
-                      </select>
-                    </div>
-                    <button onclick="openReflexMode()" class="w-full py-3 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-sm btn-solid transition">
-                      ⚡ Start (${state.reflexSeconds || 7} sek)
-                    </button>
-                  </div>
-                </div>
-
-                <!-- SHADOWING -->
-                <div class="bg-slate-900 border border-slate-800 hover:border-slate-700 rounded-3xl p-5 sm:p-6 card-shadow flex flex-col justify-between space-y-5 transition">
-                  <div>
-                    <div class="flex items-center justify-between gap-2">
-                      <span class="w-9 h-9 rounded-xl bg-teal-500/15 text-teal-300 flex items-center justify-center text-lg">🗣️</span>
-                      <span class="text-xs font-bold text-teal-300">Na słuchawki</span>
-                    </div>
-                    <h3 class="text-lg font-extrabold text-white mt-3">Tryb Shadowing (Echo)</h3>
-                    <p class="text-xs sm:text-sm text-slate-400 mt-1">Lektor czyta pełne zdanie (wolno 0.65x + normalnie), a Ty powtarzasz głośno jak echo.</p>
-                  </div>
-                  <button onclick="openShadowing()" class="w-full py-3 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-sm btn-solid transition">
-                    🗣️ Uruchom Shadowing
+                    <span class="text-amber-400 font-bold">→</span>
                   </button>
                 </div>
-              </div>
 
-            ` : tTab === "audio" ? `
-              <!-- ZAKŁADKA 3: AUDIO W BIEGU (PRZESTRONNE 1×2 + KOMPAKTOWY SKRÓT PIMSLEURA) -->
-              <div class="space-y-4">
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <!-- HANDS-FREE -->
-                <div class="bg-slate-900 border border-slate-800 hover:border-slate-700 rounded-3xl p-5 sm:p-6 card-shadow flex flex-col justify-between space-y-5 transition">
-                  <div>
-                    <div class="flex items-center justify-between gap-2">
-                      <div class="flex items-center gap-2.5">
-                        <span class="w-9 h-9 rounded-xl bg-sky-500/15 text-sky-300 flex items-center justify-center text-lg">🎧</span>
-                        <span class="text-xs font-bold text-sky-300">Na spacer / do auta</span>
-                      </div>
-                      <span class="text-xs font-bold text-slate-400">Bez klikania</span>
-                    </div>
-                    <h3 class="text-lg font-extrabold text-white mt-3">Tryb Hands-free Audio</h3>
-                    <p class="text-xs sm:text-sm text-slate-400 mt-1">Odkładasz telefon: słyszysz po polsku → pauza na Twoją odpowiedź → lektor po angielsku.</p>
-                  </div>
-                  <div class="space-y-3">
-                    <div class="grid grid-cols-2 gap-2">
+              ` : tTab === "speaking" ? `
+                <!-- 4 PROSTE KAFELKI: MÓWIENIE -->
+                <div class="grid grid-cols-2 gap-3">
+                  <button onclick="openSpeakOutHub('ALL')" class="p-4 sm:p-5 rounded-2xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-left space-y-1.5 card-shadow transition">
+                    <span class="text-2xl block">🗣️</span>
+                    <p class="text-base font-extrabold text-white">Powiedz na głos</p>
+                    <p class="text-xs text-slate-400">Metoda Pimsleura (${(state.completedSpeakOut || []).length}/${SPEAK_OUT_SESSIONS.length})</p>
+                  </button>
+                  <button onclick="navigateTo('dialogues_hub', { resetRoleplay: true })" class="p-4 sm:p-5 rounded-2xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-left space-y-1.5 card-shadow transition">
+                    <span class="text-2xl block">💬</span>
+                    <p class="text-base font-extrabold text-white">Rozmówki</p>
+                    <p class="text-xs text-slate-400">Scenki z życia (A0–B2)</p>
+                  </button>
+                  <button onclick="openPhoneticsTrainer('drill')" class="p-4 sm:p-5 rounded-2xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-left space-y-1.5 card-shadow transition">
+                    <span class="text-2xl block">👄</span>
+                    <p class="text-base font-extrabold text-white">Fonetyka</p>
+                    <p class="text-xs text-slate-400">8 pułapek wymowy</p>
+                  </button>
+                  <button onclick="openReflexMode()" class="p-4 sm:p-5 rounded-2xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-left space-y-1.5 card-shadow transition">
+                    <span class="text-2xl block">⚡</span>
+                    <p class="text-base font-extrabold text-white">Refleks (${state.reflexSeconds || 7}s)</p>
+                    <p class="text-xs text-slate-400">Szybka reakcja głosem</p>
+                  </button>
+                  <button onclick="openShadowing()" class="col-span-2 p-4 sm:p-5 rounded-2xl bg-slate-900 hover:bg-slate-800 border border-slate-800 flex items-center justify-between gap-3 text-left card-shadow transition">
+                    <div class="flex items-center gap-3">
+                      <span class="text-2xl">🔁</span>
                       <div>
-                        <label class="block text-[11px] text-slate-400 mb-1">Zakres słówek</label>
-                        <select onchange="state.hfScope = this.value; render();" class="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white text-xs font-semibold">
-                          ${renderCardScopeOptions(state.hfScope, { includeDue: true, includeHard: true, learnedCount, dueCount, hardCount: unlockedHardCount, scopedTotal: scopedWordsCount })}
-                        </select>
-                      </div>
-                      <div>
-                        <label class="block text-[11px] text-slate-400 mb-1">Pauza</label>
-                        <select onchange="state.hfPauseSec = Number(this.value); render();" class="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white text-xs font-semibold">
-                          <option value="2" ${state.hfPauseSec===2?'selected':''}>2 sek. (szybko)</option>
-                          <option value="3.5" ${state.hfPauseSec===3.5?'selected':''}>3.5 sek. (standard)</option>
-                          <option value="5" ${state.hfPauseSec===5?'selected':''}>5 sek. (spokojnie)</option>
-                        </select>
+                        <p class="text-base font-extrabold text-white">Shadowing (Echo)</p>
+                        <p class="text-xs text-slate-400">Lektor czyta zdanie, a Ty powtarzasz głośno za nim</p>
                       </div>
                     </div>
-                    <button onclick="startHandsFree()" class="w-full py-3 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-sm btn-solid transition">
-                      🎧 Uruchom Hands-free
-                    </button>
-                  </div>
-                </div>
-
-                <!-- LINGUAFM -->
-                <div class="bg-slate-900 border border-slate-800 hover:border-slate-700 rounded-3xl p-5 sm:p-6 card-shadow flex flex-col justify-between space-y-5 transition">
-                  <div>
-                    <div class="flex items-center justify-between gap-2">
-                      <div class="flex items-center gap-2.5">
-                        <span class="w-9 h-9 rounded-xl bg-rose-500/15 text-rose-300 flex items-center justify-center text-lg">🎙️</span>
-                        <span class="text-xs font-bold text-rose-300">Audycje A0–B2</span>
-                      </div>
-                      <span class="text-xs font-bold text-emerald-400">${(state.completedEpisodes || []).length}/${LINGUAFM_EPISODES.length} wysłuchanych</span>
-                    </div>
-                    <h3 class="text-lg font-extrabold text-white mt-3">LinguaFM — Krótkie Audycje</h3>
-                    <p class="text-xs sm:text-sm text-slate-400 mt-1">Dłuższe audycje (~3,5–4 min), stały ekran z 4 pytaniami, niezależnie przewijany tekst i 6 zwrotów do SRS.</p>
-                  </div>
-                  <button onclick="openLinguaFmHub()" class="w-full py-3 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-sm btn-solid transition">
-                    🎙️ Otwórz LinguaFM (${LINGUAFM_EPISODES.length} odcinków)
+                    <span class="text-indigo-400 font-bold">→</span>
                   </button>
                 </div>
-                </div>
 
-                <!-- KOMPAKTOWY SKRÓT DO SESJI MÓWIENIA NA SŁUCHAWKI -->
-                <div class="px-5 py-4 rounded-2xl bg-slate-900 border border-slate-800 flex flex-wrap items-center justify-between gap-3">
-                  <div class="flex items-center gap-3 min-w-0">
-                    <span class="w-9 h-9 rounded-xl bg-emerald-500/15 text-emerald-300 flex items-center justify-center text-base shrink-0">🗣️</span>
-                    <div class="min-w-0">
-                      <p class="text-xs sm:text-sm font-bold text-white">Powiedz to na głos (Pimsleur A0–A2) — działa też w słuchawkach</p>
-                      <p class="text-xs text-slate-400">30 sesji budowania zdań na głos bez patrzenia w ekran (${(state.completedSpeakOut || []).length}/${SPEAK_OUT_SESSIONS.length} ukończonych).</p>
+              ` : tTab === "audio" ? `
+                <!-- 3 PROSTE KARTY: AUDIO W BIEGU -->
+                <div class="space-y-3">
+                  <button onclick="openLinguaFmHub()" class="w-full p-5 rounded-2xl bg-slate-900 hover:bg-slate-800 border border-slate-800 flex items-center justify-between gap-3 text-left card-shadow transition">
+                    <div class="flex items-center gap-3.5">
+                      <span class="text-3xl">🎙️</span>
+                      <div>
+                        <p class="text-base sm:text-lg font-extrabold text-white">LinguaFM — Radio</p>
+                        <p class="text-xs sm:text-sm text-slate-400">Audycje z tekstem EN+PL (${(state.completedEpisodes || []).length}/${LINGUAFM_EPISODES.length})</p>
+                      </div>
                     </div>
-                  </div>
-                  <button onclick="openSpeakOutHub()" class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-indigo-300 text-xs font-bold shrink-0 transition">
-                    Otwórz sesje →
+                    <span class="text-indigo-400 font-bold text-lg">→</span>
+                  </button>
+                  <button onclick="startHandsFree()" class="w-full p-5 rounded-2xl bg-slate-900 hover:bg-slate-800 border border-slate-800 flex items-center justify-between gap-3 text-left card-shadow transition">
+                    <div class="flex items-center gap-3.5">
+                      <span class="text-3xl">🎧</span>
+                      <div>
+                        <p class="text-base sm:text-lg font-extrabold text-white">Hands-free Audio</p>
+                        <p class="text-xs sm:text-sm text-slate-400">Polski → pauza → angielski (na spacer i do auta)</p>
+                      </div>
+                    </div>
+                    <span class="text-indigo-400 font-bold text-lg">→</span>
+                  </button>
+                  <button onclick="openSpeakOutHub('ALL')" class="w-full p-5 rounded-2xl bg-slate-900 hover:bg-slate-800 border border-slate-800 flex items-center justify-between gap-3 text-left card-shadow transition">
+                    <div class="flex items-center gap-3.5">
+                      <span class="text-3xl">🗣️</span>
+                      <div>
+                        <p class="text-base sm:text-lg font-extrabold text-white">Powiedz na głos (słuchawki)</p>
+                        <p class="text-xs sm:text-sm text-slate-400">30 sesji budowania zdań bez patrzenia w ekran</p>
+                      </div>
+                    </div>
+                    <span class="text-indigo-400 font-bold text-lg">→</span>
                   </button>
                 </div>
-              </div>
 
-            ` : `
-              <!-- ZAKŁADKA 4: WARSZTAT I GRY (SYMETRYCZNE 2×2) -->
-              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <!-- NIEREGULARNE -->
-                <div class="bg-slate-900 border border-slate-800 hover:border-slate-700 rounded-3xl p-5 sm:p-6 card-shadow flex flex-col justify-between space-y-5 transition">
-                  <div>
-                    <div class="flex items-center justify-between gap-2">
-                      <div class="flex items-center gap-2.5">
-                        <span class="w-9 h-9 rounded-xl bg-amber-500/15 text-amber-300 flex items-center justify-center text-lg">⚡</span>
-                        <span class="text-xs font-bold text-amber-300">A1 • A2 • B1–B2</span>
-                      </div>
-                      <span class="text-xs font-bold text-emerald-400">${(state.masteredIrregulars || []).length}/${IRREGULAR_VERBS.length}</span>
-                    </div>
-                    <h3 class="text-lg font-extrabold text-white mt-3">Czasowniki nieregularne (${IRREGULAR_VERBS.length})</h3>
-                    <p class="text-xs sm:text-sm text-slate-400 mt-1">Kompletna tabela z odsłuchem 3 form + szybki test z Past Simple i III formy.</p>
-                  </div>
-                  <div class="grid grid-cols-2 gap-2">
-                    <button onclick="openIrregularVerbs('table')" class="py-3 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs sm:text-sm border border-slate-700 transition">
-                      📋 Tabela
-                    </button>
-                    <button onclick="openIrregularVerbs('drill')" class="py-3 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs sm:text-sm btn-solid transition">
-                      🎯 Test z form
-                    </button>
-                  </div>
+              ` : `
+                <!-- 4 PROSTE KAFELKI: GRY I BAZA -->
+                <div class="grid grid-cols-2 gap-3">
+                  <button onclick="openIrregularVerbs('table')" class="p-4 sm:p-5 rounded-2xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-left space-y-1.5 card-shadow transition">
+                    <span class="text-2xl block">⚡</span>
+                    <p class="text-base font-extrabold text-white">Nieregularne</p>
+                    <p class="text-xs text-slate-400">Tabela i test (${IRREGULAR_VERBS.length})</p>
+                  </button>
+                  <button onclick="openWritingTrainer('messages')" class="p-4 sm:p-5 rounded-2xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-left space-y-1.5 card-shadow transition">
+                    <span class="text-2xl block">✍️</span>
+                    <p class="text-base font-extrabold text-white">Pisanie</p>
+                    <p class="text-xs text-slate-400">Pisownia i wiadomości</p>
+                  </button>
+                  <button onclick="startMatchGame(true)" class="p-4 sm:p-5 rounded-2xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-left space-y-1.5 card-shadow transition">
+                    <span class="text-2xl block">🧩</span>
+                    <p class="text-base font-extrabold text-white">Dopasuj 5 par</p>
+                    <p class="text-xs text-slate-400">Łączenie słówek z audio</p>
+                  </button>
+                  <button onclick="startSprintGame()" class="p-4 sm:p-5 rounded-2xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-left space-y-1.5 card-shadow transition">
+                    <span class="text-2xl block">⏱️</span>
+                    <p class="text-base font-extrabold text-white">Sprint 60s</p>
+                    <p class="text-xs text-slate-400">Rekord: ${state.sprintBestScore || 0}</p>
+                  </button>
                 </div>
-
-                <!-- PISANIE -->
-                <div class="bg-slate-900 border border-slate-800 hover:border-slate-700 rounded-3xl p-5 sm:p-6 card-shadow flex flex-col justify-between space-y-5 transition">
-                  <div>
-                    <div class="flex items-center justify-between gap-2">
-                      <div class="flex items-center gap-2.5">
-                        <span class="w-9 h-9 rounded-xl bg-indigo-500/15 text-indigo-300 flex items-center justify-center text-lg">✍️</span>
-                        <span class="text-xs font-bold text-indigo-300">Pisownia + Wiadomości</span>
-                      </div>
-                      <span class="text-xs font-bold text-emerald-400">${(state.completedWritingTasks || []).length}/${WRITING_TASKS.length} zadań</span>
-                    </div>
-                    <h3 class="text-lg font-extrabold text-white mt-3">Trener Pisania</h3>
-                    <p class="text-xs sm:text-sm text-slate-400 mt-1">Pisownia słówek z pamięci oraz krótkie praktyczne wiadomości z podpowiedziami.</p>
-                  </div>
-                  <div class="grid grid-cols-2 gap-2">
-                    <button onclick="openWritingTrainer('spelling')" class="py-3 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs sm:text-sm border border-slate-700 transition">
-                      🔤 Pisownia
-                    </button>
-                    <button onclick="openWritingTrainer('messages')" class="py-3 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs sm:text-sm btn-solid transition">
-                      ✉️ Wiadomości
-                    </button>
-                  </div>
-                </div>
-
-                <!-- DOPASUJ 5 PAR -->
-                <div class="bg-slate-900 border border-slate-800 hover:border-slate-700 rounded-3xl p-5 sm:p-6 card-shadow flex flex-col justify-between space-y-5 transition">
-                  <div>
-                    <div class="flex items-center justify-between gap-2">
-                      <div class="flex items-center gap-2.5">
-                        <span class="w-9 h-9 rounded-xl bg-purple-500/15 text-purple-300 flex items-center justify-center text-lg">🧩</span>
-                        <span class="text-xs font-bold text-purple-300">Gra pamięciowa</span>
-                      </div>
-                      <span class="text-xs font-bold text-slate-400">Lektor EN</span>
-                    </div>
-                    <h3 class="text-lg font-extrabold text-white mt-3">Dopasuj 5 par</h3>
-                    <p class="text-xs sm:text-sm text-slate-400 mt-1">Szybkie łączenie angielskich słówek z polskim znaczeniem i odsłuchem.</p>
-                  </div>
-                  <div class="space-y-3">
-                    <div class="grid grid-cols-2 gap-2">
-                      <select onchange="state.matchScope = this.value; render();" class="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white text-xs font-semibold">
-                        ${renderCardScopeOptions(state.matchScope, { includeHard: true, learnedCount, hardCount: unlockedHardCount, scopedTotal: scopedWordsCount })}
-                      </select>
-                      <select onchange="state.matchDirection = this.value; render();" class="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white text-xs font-semibold">
-                        <option value="EN_PL" ${state.matchDirection==='EN_PL'?'selected':''}>🇬🇧 EN → 🇵🇱 PL</option>
-                        <option value="PL_EN" ${state.matchDirection==='PL_EN'?'selected':''}>🇵🇱 PL → 🇬🇧 EN</option>
-                        <option value="MIXED" ${state.matchDirection==='MIXED'?'selected':''}>🔀 Na zmianę</option>
-                      </select>
-                    </div>
-                    <button onclick="startMatchGame(true)" class="w-full py-3 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-sm btn-solid transition">
-                      🧩 Zagraj w 5 par
-                    </button>
-                  </div>
-                </div>
-
-                <!-- SPRINT 60 SEKUND -->
-                <div class="bg-slate-900 border border-slate-800 hover:border-slate-700 rounded-3xl p-5 sm:p-6 card-shadow flex flex-col justify-between space-y-5 transition">
-                  <div>
-                    <div class="flex items-center justify-between gap-2">
-                      <div class="flex items-center gap-2.5">
-                        <span class="w-9 h-9 rounded-xl bg-amber-500/15 text-amber-300 flex items-center justify-center text-lg">⏱️</span>
-                        <span class="text-xs font-bold text-amber-300">Combo XP</span>
-                      </div>
-                      <span class="text-xs font-bold text-amber-300">🏆 Rekord: ${state.sprintBestScore || 0}</span>
-                    </div>
-                    <h3 class="text-lg font-extrabold text-white mt-3">Sprint 60 sekund</h3>
-                    <p class="text-xs sm:text-sm text-slate-400 mt-1">Ile słówek trafisz w minutę? Seria bez błędu daje mnożnik XP x2 i x3.</p>
-                  </div>
-                  <div class="space-y-3">
-                    <div class="grid grid-cols-2 gap-2">
-                      <select onchange="state.sprintScope = this.value; render();" class="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white text-xs font-semibold">
-                        ${renderCardScopeOptions(state.sprintScope, { includeHard: true, learnedCount, hardCount: unlockedHardCount, scopedTotal: scopedWordsCount })}
-                      </select>
-                      <select onchange="state.sprintDirection = this.value; render();" class="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white text-xs font-semibold">
-                        <option value="EN_PL" ${state.sprintDirection==='EN_PL'?'selected':''}>🇬🇧 EN → 🇵🇱 PL</option>
-                        <option value="PL_EN" ${state.sprintDirection==='PL_EN'?'selected':''}>🇵🇱 PL → 🇬🇧 EN</option>
-                        <option value="MIXED" ${state.sprintDirection==='MIXED'?'selected':''}>🔀 Mieszany</option>
-                      </select>
-                    </div>
-                    <button onclick="startSprintGame()" class="w-full py-3 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-sm btn-solid transition">
-                      ⏱️ Start: Sprint 60s
-                    </button>
-                  </div>
-                </div>
-              </div>
-            `}
+              `}
+            </div>
           `;
         }
 
@@ -9383,7 +8895,7 @@
           const wordAudioKey = regText(`rev_wa_${card.id}_${state.reviewIndex}`, card.wordEn);
           const sentAudioKey = regText(`rev_sa_${card.id}_${state.reviewIndex}`, card.exEn);
 
-          const revRatingHtml = state.simpleMode ? `
+          const revRatingHtml = state.ratingStyle !== "classic" ? `
             <div class="pt-3 border-t border-slate-800 space-y-2">
               <div class="grid grid-cols-2 gap-2.5">
                 <button onclick="rateReviewCard('again')" class="py-3.5 px-3 rounded-2xl bg-amber-950/80 hover:bg-amber-900 border border-amber-500/50 text-amber-200 text-sm font-extrabold transition">
@@ -9410,7 +8922,7 @@
           html += `
             <div class="max-w-xl mx-auto">
               <div class="flex flex-wrap items-center justify-between gap-2 mb-2.5">
-                <button onclick="if(state.simpleMode){ navigateTo('home'); } else { state.reviewMode='menu'; render(); }" class="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-bold text-slate-200 transition">← Wróć</button>
+                <button onclick="state.reviewMode='menu'; render();" class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs sm:text-sm font-bold text-slate-200 transition">← Wróć</button>
                 <span class="text-xs font-bold text-sky-400">Powtórka ${state.reviewIndex + 1} / ${state.reviewQueue.length} • ${card.lessonLevel}</span>
                 <div class="flex items-center gap-1.5">
                   <button onclick="state.reviewFlipped = !state.reviewFlipped; render();" class="px-2.5 py-1 rounded-lg border text-[11px] font-bold transition ${state.reviewFlipped ? 'bg-emerald-950/60 border-emerald-500/45 text-emerald-300' : 'bg-slate-800 border-slate-700 text-slate-300'}">
@@ -9480,12 +8992,12 @@
                     </button>
                   ` : `
                     <div class="space-y-3.5">
-                      ${renderSpeechTrainer(wordKey, card.wordEn, "Odsłuch i wymowa", "", card.lessonLevel)}
-                      <button onclick="setReviewSubStep('sentence')" class="w-full py-3.5 rounded-2xl bg-sky-600 hover:bg-sky-500 text-white font-extrabold text-sm sm:text-base btn-solid transition">
+                      ${renderSpeechTrainer(wordKey, card.wordEn, "", "", card.lessonLevel)}
+                      <button onclick="setReviewSubStep('sentence')" class="w-full py-4 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold text-base btn-solid shadow-md transition">
                         Dalej: Zdanie z tym słówkiem →
                       </button>
-                      ${state.reviewQuickRate || state.simpleMode ? revRatingHtml : `
-                        <div class="text-center">
+                      ${state.reviewQuickRate ? revRatingHtml : `
+                        <div class="text-center pt-0.5">
                           <button onclick="state.reviewQuickRate=true; render();" class="text-xs text-slate-400 hover:text-white hover:underline transition">
                             Pomiń zdanie i oceń od razu
                           </button>
@@ -11621,7 +11133,7 @@
         `;
       }
 
-      // --- WIDOK 4: NAUKA W LEKCJI (ETAPY 1-5) ---
+      // --- WIDOK 4: NAUKA W LEKCJI (CZYSTY, CZYTELNY UKŁAD DLA ETAPÓW 1–5) ---
       else if (state.view === "lesson") {
         const lesson = allLessons.find(t => t.id === state.activeLessonId);
         if (!lesson || !lesson.flashcards || lesson.flashcards.length === 0) {
@@ -11638,74 +11150,63 @@
           { num: 1, name: "1. Słówka", optional: false },
           { num: 2, name: "2. Klocki", optional: false },
           { num: 5, name: "3. Mówienie", optional: false },
-          { num: 3, name: "Luki (bonus)", optional: true },
-          { num: 4, name: "Dyktando (bonus)", optional: true }
+          { num: 3, name: "Luki", optional: true },
+          { num: 4, name: "Dyktando", optional: true }
         ] : [
-          { num: 1, name: "1. Słówka + Zdania", optional: false },
-          { num: 2, name: "2. Klocki + Mowa", optional: false },
-          { num: 3, name: "3. Luki + Mowa", optional: false },
-          { num: 4, name: "4. Dyktando + Mowa", optional: false },
-          { num: 5, name: "5. Scenka + Mowa", optional: false }
+          { num: 1, name: "1. Słówka", optional: false },
+          { num: 2, name: "2. Klocki", optional: false },
+          { num: 3, name: "3. Luki", optional: false },
+          { num: 4, name: "4. Dyktando", optional: false },
+          { num: 5, name: "5. Mówienie", optional: false }
         ];
 
         html += `
-          <!-- KOMPAKTOWY NAGŁÓWEK LEKCJI (1 WIERSZ NA TELEFONIE I LAPTOPIE) -->
-          <div class="mb-2.5 sm:mb-3.5 flex items-center justify-between gap-2">
-            <div class="flex items-center gap-2 min-w-0">
-              <button onclick="state.view='dashboard'; render();" class="px-2.5 sm:px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs sm:text-sm font-bold text-slate-200 shrink-0 transition">← Lekcje</button>
-              <div class="min-w-0">
-                <div class="flex items-center gap-1.5">
-                  <span class="px-1.5 py-0.5 rounded-md bg-indigo-600/20 text-indigo-300 text-[10px] font-extrabold shrink-0">${lesson.level}</span>
-                  <h2 class="text-sm sm:text-lg font-extrabold text-white truncate">${escHtml(lesson.title)}</h2>
-                </div>
+          <div class="max-w-xl mx-auto space-y-3.5">
+            <!-- CZYSTY NAGŁÓWEK LEKCJI -->
+            <div class="flex items-center justify-between gap-2">
+              <button onclick="state.view='dashboard'; render();" class="px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-xs sm:text-sm font-bold text-slate-200 shrink-0 transition">← Lekcje</button>
+              <div class="min-w-0 text-right">
+                <span class="text-xs font-extrabold text-indigo-300">${lesson.level}${slice.isSplit ? ` • Cz. ${slice.part}/2` : ''}</span>
+                <h2 class="text-sm sm:text-base font-extrabold text-white truncate">${escHtml(lesson.title)}</h2>
               </div>
             </div>
-            ${!state.simpleMode ? `
-              <button onclick="setSpeechStrictness(state.speechStrictness === 'strict' ? 'lenient' : 'strict')" title="Czułość oceny wymowy" class="px-2 sm:px-2.5 py-1.5 rounded-xl text-[11px] font-bold border shrink-0 transition ${state.speechStrictness === 'strict' ? 'bg-rose-950/60 border-rose-500/40 text-rose-200' : 'bg-emerald-950/60 border-emerald-500/40 text-emerald-200'}">
-                ${state.speechStrictness === 'strict' ? '🎯 Dokładna' : '😌 Łagodna'}
-              </button>
-            ` : ""}
-          </div>
 
-          ${canSplitLesson(lesson) ? `
-            <div class="mb-2.5 sm:mb-3 flex items-center justify-between gap-2 bg-slate-900 px-2.5 py-1.5 rounded-2xl border border-slate-800">
-              <span class="text-[11px] font-bold text-slate-400 shrink-0 hidden sm:inline">🧩 Porcja:</span>
-              <div class="grid grid-cols-3 sm:flex gap-1 w-full sm:w-auto text-[11px] sm:text-xs font-bold">
-                <button onclick="setLessonPart(1)" class="px-2.5 py-1.5 rounded-xl transition ${state.activeLessonPart === 1 ? 'bg-indigo-600 text-white btn-solid' : 'bg-slate-950 text-slate-400 hover:text-white'}">
-                  ${isLessonPartCompleted(lesson, 1) ? '✓ ' : ''}Cz. 1/2 (${fcHalf})
+            <!-- CZYSTY PASEK ETAPÓW -->
+            <div class="flex overflow-x-auto no-scrollbar gap-1.5 pb-0.5 sm:grid sm:grid-cols-5 sm:overflow-visible">
+              ${stages.map(st => {
+                const stDone = isLessonPartStageDone(lesson, state.activeLessonPart, st.num);
+                return `
+                  <button onclick="setStage(${st.num})" class="shrink-0 whitespace-nowrap px-3 sm:px-2 py-2.5 rounded-2xl text-xs font-bold border text-center transition ${
+                    state.activeStage === st.num
+                      ? 'bg-indigo-600 border-indigo-400 text-white btn-solid shadow-sm'
+                      : stDone
+                        ? 'bg-emerald-950/60 border-emerald-500/40 text-emerald-300'
+                        : st.optional
+                          ? 'bg-slate-900/50 border-slate-800 text-slate-500 hover:text-slate-300 border-dashed'
+                          : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
+                  }">
+                    ${stDone ? '✓ ' : ''}${st.name}
+                  </button>
+                `;
+              }).join("")}
+            </div>
+
+            ${canSplitLesson(lesson) ? `
+              <div class="grid grid-cols-3 gap-1.5 bg-slate-900 p-1 rounded-2xl border border-slate-800 text-xs font-bold">
+                <button onclick="setLessonPart(1)" class="py-1.5 px-2 rounded-xl transition ${state.activeLessonPart === 1 ? 'bg-slate-800 text-white' : 'text-slate-400 hover:text-white'}">
+                  ${isLessonPartCompleted(lesson, 1) ? '✓ ' : ''}Cz. 1 (${fcHalf})
                 </button>
-                <button onclick="setLessonPart(2)" class="px-2.5 py-1.5 rounded-xl transition ${state.activeLessonPart === 2 ? 'bg-indigo-600 text-white btn-solid' : 'bg-slate-950 text-slate-400 hover:text-white'}">
-                  ${isLessonPartCompleted(lesson, 2) ? '✓ ' : ''}Cz. 2/2 (${lesson.flashcards.length - fcHalf})
+                <button onclick="setLessonPart(2)" class="py-1.5 px-2 rounded-xl transition ${state.activeLessonPart === 2 ? 'bg-slate-800 text-white' : 'text-slate-400 hover:text-white'}">
+                  ${isLessonPartCompleted(lesson, 2) ? '✓ ' : ''}Cz. 2 (${lesson.flashcards.length - fcHalf})
                 </button>
-                <button onclick="setLessonPart(0)" class="px-2.5 py-1.5 rounded-xl transition ${state.activeLessonPart === 0 ? 'bg-indigo-600 text-white btn-solid' : 'bg-slate-950 text-slate-400 hover:text-white'}">
+                <button onclick="setLessonPart(0)" class="py-1.5 px-2 rounded-xl transition ${state.activeLessonPart === 0 ? 'bg-slate-800 text-white' : 'text-slate-400 hover:text-white'}">
                   Całość (${lesson.flashcards.length})
                 </button>
               </div>
-            </div>
-          ` : ""}
-
-          <!-- PASEK ETAPÓW: 1 PRZEWIJANY WIERSZ NA TELEFONIE, 5 KOLUMN NA LAPTOPIE -->
-          <div class="flex overflow-x-auto no-scrollbar gap-1.5 pb-1 mb-3.5 sm:mb-5 sm:grid sm:grid-cols-5 sm:gap-2 sm:overflow-visible sm:pb-0">
-            ${stages.map(st => {
-              const stDone = isLessonPartStageDone(lesson, state.activeLessonPart, st.num);
-              return `
-                <button onclick="setStage(${st.num})" class="shrink-0 whitespace-nowrap px-3 sm:px-2 py-2 rounded-xl text-xs font-bold border text-center transition ${
-                  state.activeStage === st.num
-                    ? 'bg-indigo-600 border-indigo-400 text-white btn-solid shadow-md shadow-indigo-500/20'
-                    : stDone
-                      ? 'bg-emerald-950/60 border-emerald-500/40 text-emerald-300'
-                      : st.optional
-                        ? 'bg-slate-900/60 border-slate-800/80 text-slate-500 hover:text-slate-300 border-dashed'
-                        : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
-                }">
-                  ${stDone ? '✓ ' : ''}${st.name}
-                </button>
-              `;
-            }).join("")}
-          </div>
+            ` : ""}
         `;
 
-        // --- ETAP 1: SŁÓWKA + ZDANIA (TŁUMACZENIE WIDOCZNE OD RAZU + WYRAŹNA RAMKA) ---
+        // --- ETAP 1: SŁÓWKA + ZDANIA ---
         if (state.activeStage === 1) {
           const card = slice.flashcards[state.cardIndex] || slice.flashcards[0];
           const isSentStep = state.cardSubStep === "sentence";
@@ -11714,181 +11215,182 @@
           const sentKey = `fc_sent_${card.id}`;
           const wordAudioKey = regText(`fc_wa_${card.id}`, card.wordEn);
           const sentAudioKey = regText(`fc_sa_${card.id}`, card.exEn);
-          const wordRes = state.speechResults[wordKey];
-          const sentRes = state.speechResults[sentKey];
-          const spokeAtLeastOnce = (wordRes && wordRes.status === "done") || (sentRes && sentRes.status === "done");
+          const pct1 = Math.round(((state.cardIndex + 1) / Math.max(1, slice.flashcards.length)) * 100);
 
-          const ratingGridHtml = state.simpleMode ? `
-            <div class="pt-3 border-t border-slate-800 space-y-2">
-              <div class="grid grid-cols-2 gap-2.5">
-                <button onclick="rateFlashcard('${card.id}', 'again')" class="py-3.5 px-3 rounded-2xl bg-amber-950/80 hover:bg-amber-900 border border-amber-500/50 text-amber-200 text-sm font-extrabold transition">
-                  🔁 Powtórz później
-                </button>
-                <button onclick="rateFlashcard('${card.id}', 'good')" class="py-3.5 px-3 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-extrabold btn-solid transition">
-                  ✅ Znam — dalej →
-                </button>
-              </div>
+          const ratingGridHtml = state.ratingStyle !== "classic" ? `
+            <div class="pt-2 grid grid-cols-2 gap-2.5">
+              <button onclick="rateFlashcard('${card.id}', 'again')" class="py-3.5 px-3 rounded-2xl bg-amber-950/75 hover:bg-amber-900 border border-amber-500/45 text-amber-200 text-sm sm:text-base font-extrabold transition">
+                🔁 Powtórz później
+              </button>
+              <button onclick="rateFlashcard('${card.id}', 'good')" class="py-3.5 px-3 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm sm:text-base font-extrabold btn-solid transition">
+                ✅ Znam — dalej →
+              </button>
             </div>
           ` : `
-            <div class="pt-3.5 border-t border-slate-800 space-y-2.5">
-              <p class="text-xs text-center ${spokeAtLeastOnce ? 'text-emerald-400 font-semibold' : 'text-slate-400'}">
-                ${spokeAtLeastOnce ? '✅ Wymowa przetestowana! Oceń zapamiętanie:' : 'Oceń, jak dobrze pamiętasz to słówko:'}
-              </p>
+            <div class="pt-3 border-t border-slate-800 space-y-2">
               <div class="grid grid-cols-4 gap-1.5 sm:gap-2">
-                <button onclick="rateFlashcard('${card.id}', 'again')" class="py-2.5 px-1 rounded-xl bg-rose-950/80 hover:bg-rose-900 border border-rose-700/50 text-rose-200 text-xs font-bold transition">Powtórz<br><span class="font-normal opacity-75 text-[10px]">&lt; 1 min</span></button>
+                <button onclick="rateFlashcard('${card.id}', 'again')" class="py-2.5 px-1 rounded-xl bg-rose-950/80 hover:bg-rose-900 border border-rose-700/50 text-rose-200 text-xs font-bold transition">Powtórz<br><span class="font-normal opacity-75 text-[10px]">1 min</span></button>
                 <button onclick="rateFlashcard('${card.id}', 'hard')" class="py-2.5 px-1 rounded-xl bg-amber-950/80 hover:bg-amber-900 border border-amber-700/50 text-amber-200 text-xs font-bold transition">Trudne<br><span class="font-normal opacity-75 text-[10px]">10 min</span></button>
                 <button onclick="rateFlashcard('${card.id}', 'good')" class="py-2.5 px-1 rounded-xl bg-emerald-950/80 hover:bg-emerald-900 border border-emerald-700/50 text-emerald-200 text-xs font-bold transition">Dobre<br><span class="font-normal opacity-75 text-[10px]">1 dzień</span></button>
                 <button onclick="rateFlashcard('${card.id}', 'easy')" class="py-2.5 px-1 rounded-xl bg-sky-950/80 hover:bg-sky-900 border border-sky-700/50 text-sky-200 text-xs font-bold transition">Łatwe<br><span class="font-normal opacity-75 text-[10px]">4 dni</span></button>
               </div>
-              <p class="hidden md:block text-[11px] text-slate-500 text-center pt-0.5">⌨️ <b>Spacja</b> (dalej) • <b>R</b> (lektor) • <b>S</b> (0.65x) • <b>M</b> (mikrofon) • <b>1–4</b> (ocena)</p>
             </div>
           `;
 
           html += `
-            <div class="max-w-xl mx-auto">
-              <!-- GÓRNY PASEK FISZKI: LICZNIK + WIDOCZNOŚĆ TŁUMACZENIA + KIERUNEK -->
-              <div class="flex flex-wrap items-center justify-between gap-2 mb-2.5 text-xs text-slate-400">
-                <span class="font-bold">${slice.isSplit ? `Cz. ${slice.part}/2 • ` : ""}Słówko <b class="text-white">${state.cardIndex + 1}</b> / ${slice.flashcards.length}</span>
-                <div class="flex items-center gap-1.5">
-                  <button onclick="toggleShowTranslationAlways()" title="Przełącz: tłumaczenie widoczne od razu lub ukryte do sprawdzenia pamięci" class="px-2.5 py-1 rounded-lg border text-[11px] font-bold transition ${state.showTranslationAlways ? 'bg-emerald-950/60 border-emerald-500/45 text-emerald-300' : 'bg-slate-800 border-slate-700 text-slate-300 hover:text-white'}">
-                    ${state.showTranslationAlways ? '👁️ Tłumaczenie: WŁ' : '🙈 Ukryte (test)'}
-                  </button>
-                  <button onclick="state.direction = state.direction === 'EN_PL' ? 'PL_EN' : 'EN_PL'; state.cardFlipped=false; state.cardSubStep='word'; state.cardQuickRate=false; state.cardPhonHint=false; saveState(); render();" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-indigo-300 text-[11px] font-bold transition">
-                    ${state.direction === 'EN_PL' ? '🇺🇸 EN→PL' : '🇵🇱 PL→EN'}
-                  </button>
+            <div class="bg-slate-900 border border-slate-800 rounded-3xl p-5 sm:p-7 card-shadow space-y-5">
+              <!-- LICZNIK + PASEK POSTĘPU + SZYBKI PRZEŁĄCZNIK PL -->
+              <div class="space-y-2">
+                <div class="flex items-center justify-between gap-2 text-xs font-bold">
+                  <span class="text-slate-400">Słówko <b class="text-white">${state.cardIndex + 1}</b> z ${slice.flashcards.length}</span>
+                  <div class="flex items-center gap-1.5">
+                    <button onclick="toggleShowTranslationAlways()" class="px-2.5 py-1 rounded-lg border text-[11px] font-bold transition ${state.showTranslationAlways ? 'bg-emerald-950/60 border-emerald-500/45 text-emerald-300' : 'bg-slate-800 border-slate-700 text-slate-300'}">
+                      ${state.showTranslationAlways ? '👁️ PL: WŁ' : '🙈 Ukryte'}
+                    </button>
+                    <button onclick="state.direction = state.direction === 'EN_PL' ? 'PL_EN' : 'EN_PL'; state.cardFlipped=false; state.cardSubStep='word'; state.cardQuickRate=false; state.cardPhonHint=false; saveState(); render();" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-indigo-300 text-[11px] font-bold transition">
+                      ${state.direction === 'EN_PL' ? 'EN→PL' : 'PL→EN'}
+                    </button>
+                  </div>
+                </div>
+                <div class="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                  <div class="h-full bg-indigo-500 transition-all" style="width:${pct1}%"></div>
                 </div>
               </div>
 
-              <div class="bg-slate-900 border border-slate-800 rounded-3xl p-4 sm:p-7 card-shadow space-y-4 sm:space-y-5">
-                <!-- PRZEŁĄCZNIK: 1. SŁÓWKO | 2. ZDANIE -->
-                <div class="grid grid-cols-2 gap-1.5 p-1 rounded-2xl bg-slate-950 border border-slate-800">
-                  <button onclick="setCardSubStep('word')" class="py-2 rounded-xl text-xs font-bold transition ${!isSentStep ? 'bg-indigo-600 text-white btn-solid shadow-sm' : 'text-slate-400 hover:text-white'}">
-                    1. Słówko
-                  </button>
-                  <button onclick="setCardSubStep('sentence')" class="py-2 rounded-xl text-xs font-bold transition ${isSentStep ? 'bg-indigo-600 text-white btn-solid shadow-sm' : 'text-slate-400 hover:text-white'}">
-                    2. Zdanie w kontekście
-                  </button>
+              <!-- PRZEŁĄCZNIK: SŁÓWKO | ZDANIE -->
+              <div class="grid grid-cols-2 gap-1.5 p-1 rounded-2xl bg-slate-950 border border-slate-800">
+                <button onclick="setCardSubStep('word')" class="py-2 rounded-xl text-xs sm:text-sm font-bold transition ${!isSentStep ? 'bg-indigo-600 text-white btn-solid shadow-sm' : 'text-slate-400 hover:text-white'}">
+                  1. Słówko
+                </button>
+                <button onclick="setCardSubStep('sentence')" class="py-2 rounded-xl text-xs sm:text-sm font-bold transition ${isSentStep ? 'bg-indigo-600 text-white btn-solid shadow-sm' : 'text-slate-400 hover:text-white'}">
+                  2. Zdanie
+                </button>
+              </div>
+
+              ${!isSentStep ? `
+                <!-- KROK 1: SŁÓWKO -->
+                <div class="text-center py-2 space-y-3.5">
+                  ${state.direction === "EN_PL" ? `
+                    <div>
+                      <h3 onclick="speakByKey('${wordAudioKey}', ${state.defaultRate})" title="Kliknij, aby odsłuchać" class="text-4xl sm:text-5xl font-extrabold text-white tracking-tight cursor-pointer hover:text-indigo-300 transition">${escHtml(card.wordEn)}</h3>
+                      <p class="text-base text-amber-300 font-mono mt-1.5">[${escHtml(card.wordPhon)}]</p>
+                    </div>
+                    ${isRevealed ? `
+                      <div class="mx-auto max-w-md px-4 py-3 rounded-2xl bg-emerald-950/45 border border-emerald-500/40">
+                        <p class="text-xl sm:text-2xl font-extrabold text-white">🇵🇱 ${escHtml(card.wordPl)}</p>
+                      </div>
+                    ` : ""}
+                  ` : `
+                    ${!isRevealed ? `
+                      <div class="mx-auto max-w-md px-4 py-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-1">
+                        <span class="text-xs font-bold text-slate-400">Powiedz po angielsku</span>
+                        <h3 class="text-2xl sm:text-3xl font-extrabold text-white">🇵🇱 ${escHtml(card.wordPl)}</h3>
+                      </div>
+                      ${state.cardPhonHint
+                        ? `<p class="text-sm text-amber-300 font-mono">💡 [${escHtml(card.wordPhon)}]</p>`
+                        : `<button onclick="state.cardPhonHint=true; render();" class="text-xs text-indigo-400 hover:underline font-semibold">💡 Podpowiedź wymowy</button>`}
+                    ` : `
+                      <div class="mx-auto max-w-md px-4 py-2.5 rounded-2xl bg-slate-950 border border-slate-800">
+                        <p class="text-lg sm:text-xl font-bold text-slate-200">🇵🇱 ${escHtml(card.wordPl)}</p>
+                      </div>
+                      <div class="mx-auto max-w-md px-4 py-3 rounded-2xl bg-emerald-950/45 border border-emerald-500/40">
+                        <h3 onclick="speakByKey('${wordAudioKey}', ${state.defaultRate})" class="text-3xl sm:text-4xl font-extrabold text-emerald-400 cursor-pointer">${escHtml(card.wordEn)}</h3>
+                        <p class="text-sm text-amber-300 font-mono mt-1">[${escHtml(card.wordPhon)}]</p>
+                      </div>
+                    `}
+                  `}
                 </div>
 
-                ${!isSentStep ? `
-                  <!-- KROK 1: SŁÓWKO + WYRAŹNA RAMKA Z TŁUMACZENIEM POLSKIM -->
-                  <div class="text-center py-1 sm:py-2 space-y-3">
+                ${!isRevealed ? `
+                  <div class="space-y-3">
                     ${state.direction === "EN_PL" ? `
-                      <div>
-                        <h3 onclick="speakByKey('${wordAudioKey}', ${state.defaultRate})" title="Kliknij, aby odsłuchać" class="text-4xl sm:text-5xl font-extrabold text-white tracking-tight cursor-pointer hover:text-indigo-300 transition">${escHtml(card.wordEn)}</h3>
-                        <p class="text-sm sm:text-base text-amber-300 font-mono mt-1">[${escHtml(card.wordPhon)}]</p>
+                      <div class="grid grid-cols-2 gap-2">
+                        <button onclick="speakByKey('${wordAudioKey}', ${state.defaultRate})" class="py-3 rounded-2xl bg-slate-800 hover:bg-slate-700 text-sm font-bold text-white">🔊 Posłuchaj</button>
+                        <button onclick="speakByKey('${wordAudioKey}', 0.65)" class="py-3 rounded-2xl bg-slate-800 hover:bg-slate-700 text-sm font-bold text-amber-300">🐢 Wolno</button>
                       </div>
-
-                      ${!isRevealed ? `
-                        <div class="flex justify-center gap-2 pt-1">
-                          <button onclick="speakByKey('${wordAudioKey}', ${state.defaultRate})" class="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-bold text-white">🔊 Posłuchaj</button>
-                          <button onclick="speakByKey('${wordAudioKey}', 0.65)" class="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-bold text-amber-300">🐢 Wolno</button>
-                        </div>
-                      ` : `
-                        <div class="mx-auto max-w-md px-4 py-3 rounded-2xl bg-emerald-950/45 border border-emerald-500/40">
-                          <span class="block text-[10px] uppercase tracking-wider font-extrabold text-emerald-400">Znaczenie po polsku</span>
-                          <p class="text-xl sm:text-2xl font-extrabold text-white mt-0.5">🇵🇱 ${escHtml(card.wordPl)}</p>
-                        </div>
-                      `}
-                    ` : `
-                      ${!isRevealed ? `
-                        <div class="mx-auto max-w-md px-4 py-3.5 rounded-2xl bg-slate-950 border border-slate-800 space-y-1">
-                          <span class="text-[11px] uppercase tracking-wider font-bold text-slate-400">Powiedz po angielsku</span>
-                          <h3 class="text-2xl sm:text-3xl font-extrabold text-white">🇵🇱 ${escHtml(card.wordPl)}</h3>
-                        </div>
-                        <div>
-                          ${state.cardPhonHint ? `
-                            <p class="text-xs text-amber-300 font-mono bg-amber-950/30 border border-amber-500/20 inline-block px-3 py-1 rounded-lg">💡 [${escHtml(card.wordPhon)}]</p>
-                          ` : `
-                            <button onclick="state.cardPhonHint=true; render();" class="text-xs text-indigo-400 hover:underline font-semibold">💡 Podpowiedź wymowy</button>
-                          `}
-                        </div>
-                      ` : `
-                        <div class="mx-auto max-w-md px-4 py-2.5 rounded-2xl bg-slate-950 border border-slate-800">
-                          <span class="block text-[10px] uppercase tracking-wider font-bold text-slate-400">Po polsku</span>
-                          <p class="text-lg sm:text-xl font-bold text-slate-200 mt-0.5">🇵🇱 ${escHtml(card.wordPl)}</p>
-                        </div>
-                        <div class="mx-auto max-w-md px-4 py-3 rounded-2xl bg-emerald-950/45 border border-emerald-500/40">
-                          <h3 onclick="speakByKey('${wordAudioKey}', ${state.defaultRate})" title="Kliknij, aby odsłuchać" class="text-3xl sm:text-4xl font-extrabold text-emerald-400 tracking-tight cursor-pointer hover:text-emerald-300 transition">${escHtml(card.wordEn)}</h3>
-                          <p class="text-sm text-amber-300 font-mono mt-1">[${escHtml(card.wordPhon)}]</p>
-                        </div>
-                      `}
-                    `}
-                  </div>
-
-                  ${!isRevealed ? `
-                    <button onclick="flipCurrentCard()" class="w-full py-3.5 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold text-base btn-solid shadow-md transition">
+                    ` : ""}
+                    <button onclick="flipCurrentCard()" class="w-full py-4 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold text-base btn-solid shadow-md transition">
                       👁️ ${state.direction === 'EN_PL' ? 'Pokaż tłumaczenie' : 'Pokaż po angielsku'}
                     </button>
-                  ` : `
-                    <div class="space-y-3.5">
-                      ${renderSpeechTrainer(wordKey, card.wordEn, "Odsłuch i wymowa", "", lesson.level)}
-
-                      <button onclick="setCardSubStep('sentence')" class="w-full py-3.5 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold text-sm sm:text-base btn-solid transition">
-                        Dalej: Zdanie z tym słówkiem →
-                      </button>
-
-                      ${state.cardQuickRate || state.simpleMode ? ratingGridHtml : `
-                        <div class="text-center">
-                          <button onclick="state.cardQuickRate=true; render();" class="text-xs text-slate-400 hover:text-white hover:underline transition">
-                            Pomiń zdanie i oceń od razu
-                          </button>
-                        </div>
-                      `}
-                    </div>
-                  `}
-                ` : `
-                  <!-- KROK 2: ZDANIE W KONTEKŚCIE + WYRAŹNE TŁUMACZENIE POLSKIE -->
-                  <div class="text-center py-1 space-y-3">
-                    <span class="inline-block px-3 py-1 rounded-full bg-slate-950 border border-slate-800 text-xs font-semibold text-slate-300">
-                      <b class="text-emerald-400">${escHtml(card.wordEn)}</b> = ${escHtml(card.wordPl)}
-                    </span>
-                    <h3 onclick="speakByKey('${sentAudioKey}', ${state.defaultRate})" title="Kliknij, aby odsłuchać zdanie" class="text-2xl sm:text-3xl font-extrabold text-white leading-snug cursor-pointer hover:text-indigo-200 transition">
-                      ${highlightWordInSentence(card.exEn, card.wordEn)}
-                    </h3>
-                    <p class="text-xs sm:text-sm text-amber-300/90 font-mono">[${escHtml(card.exPhon)}]</p>
-                    <div class="mx-auto max-w-lg px-4 py-2.5 rounded-2xl bg-emerald-950/45 border border-emerald-500/35">
-                      <p class="text-base sm:text-lg font-bold text-white">🇵🇱 ${escHtml(card.exPl)}</p>
-                    </div>
                   </div>
+                ` : `
+                  <div class="space-y-3.5">
+                    ${renderSpeechTrainer(wordKey, card.wordEn, "", "", lesson.level)}
 
-                  ${renderSpeechTrainer(sentKey, card.exEn, "Odsłuch i wymowa zdania", "", lesson.level)}
+                    <button onclick="setCardSubStep('sentence')" class="w-full py-4 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold text-base btn-solid shadow-md transition">
+                      Dalej: Zdanie z tym słówkiem →
+                    </button>
 
-                  ${ratingGridHtml}
+                    ${state.cardQuickRate ? ratingGridHtml : `
+                      <div class="text-center">
+                        <button onclick="state.cardQuickRate=true; render();" class="text-xs text-slate-400 hover:text-white hover:underline transition">
+                          Pomiń zdanie i oceń od razu
+                        </button>
+                      </div>
+                    `}
+                  </div>
                 `}
-              </div>
+              ` : `
+                <!-- KROK 2: ZDANIE W KONTEKŚCIE -->
+                <div class="text-center py-2 space-y-3.5">
+                  <span class="inline-block px-3 py-1 rounded-full bg-slate-950 border border-slate-800 text-xs sm:text-sm font-semibold text-slate-300">
+                    <b class="text-emerald-400">${escHtml(card.wordEn)}</b> = ${escHtml(card.wordPl)}
+                  </span>
+                  <h3 onclick="speakByKey('${sentAudioKey}', ${state.defaultRate})" title="Kliknij, aby odsłuchać zdanie" class="text-2xl sm:text-3xl font-extrabold text-white leading-snug cursor-pointer hover:text-indigo-200 transition">
+                    ${highlightWordInSentence(card.exEn, card.wordEn)}
+                  </h3>
+                  <p class="text-sm text-amber-300/90 font-mono">[${escHtml(card.exPhon)}]</p>
+                  <div class="mx-auto max-w-lg px-4 py-3 rounded-2xl bg-emerald-950/45 border border-emerald-500/35">
+                    <p class="text-base sm:text-lg font-bold text-white">🇵🇱 ${escHtml(card.exPl)}</p>
+                  </div>
+                </div>
+
+                ${renderSpeechTrainer(sentKey, card.exEn, "", "", lesson.level)}
+
+                ${ratingGridHtml}
+              `}
             </div>
           `;
         }
-        // --- ETAP 2 ---
+
+        // --- ETAP 2: KLOCKI (UKŁADANIE ZDANIA) ---
         else if (state.activeStage === 2) {
           const blk = slice.blocks[state.blockIndex] || slice.blocks[0];
           const usedIndices = state.selectedWords.map(s => s.idx);
           const blkKey = `blk_${lesson.id}_${slice.blkOffset + state.blockIndex}`;
+          const pct2 = Math.round(((state.blockIndex + 1) / Math.max(1, slice.blocks.length)) * 100);
           html += `
-            <div class="max-w-2xl mx-auto bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 card-shadow">
-              <div class="flex justify-between text-xs text-slate-400 mb-4">
-                <span>${slice.isSplit ? `Część ${slice.part}/2 • ` : ""}Zadanie ${state.blockIndex + 1} z ${slice.blocks.length}</span>
-                <span>Ułóż zdanie i powiedz je na głos</span>
+            <div class="bg-slate-900 border border-slate-800 rounded-3xl p-5 sm:p-7 card-shadow space-y-5">
+              <div class="space-y-2">
+                <div class="flex justify-between text-xs font-bold text-slate-400">
+                  <span>Zdanie <b class="text-white">${state.blockIndex + 1}</b> z ${slice.blocks.length}</span>
+                  <span>Ułóż po angielsku</span>
+                </div>
+                <div class="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                  <div class="h-full bg-indigo-500 transition-all" style="width:${pct2}%"></div>
+                </div>
               </div>
-              <h3 class="text-xl font-bold text-white mb-6">🇵🇱 ${escHtml(blk.pl)}</h3>
 
-              <div class="min-h-[64px] p-3 rounded-2xl bg-slate-950 border-2 border-dashed border-slate-700 flex flex-wrap gap-2 mb-6">
-                ${state.selectedWords.length === 0 ? `<span class="text-slate-600 text-sm my-auto">Klikaj słowa poniżej, aby ułożyć zdanie...</span>` : ""}
+              <div class="px-4 py-3.5 rounded-2xl bg-emerald-950/40 border border-emerald-500/35 text-center">
+                <h3 class="text-xl sm:text-2xl font-extrabold text-white leading-snug">🇵🇱 ${escHtml(blk.pl)}</h3>
+              </div>
+
+              <div class="min-h-[72px] p-3.5 rounded-2xl bg-slate-950 border-2 border-dashed border-slate-700 flex flex-wrap gap-2 items-center">
+                ${state.selectedWords.length === 0 ? `<span class="text-slate-500 text-sm mx-auto">Klikaj słowa poniżej, aby ułożyć zdanie...</span>` : ""}
                 ${state.selectedWords.map((sw, sIdx) => `
-                  <button onclick="removeSelectedWord(${sIdx})" class="px-3.5 py-2 rounded-xl bg-indigo-600 text-white font-semibold text-sm shadow">
+                  <button onclick="removeSelectedWord(${sIdx})" class="px-4 py-2.5 rounded-xl bg-indigo-600 text-white font-bold text-base btn-solid shadow">
                     ${escHtml(sw.word)}
                   </button>
                 `).join("")}
               </div>
 
               ${!state.blockCompletedCurrent ? `
-                <div class="flex flex-wrap gap-2 mb-6">
+                <div class="flex flex-wrap gap-2 justify-center">
                   ${blk.words.map((w, idx) => {
                     const isUsed = usedIndices.includes(idx);
                     return `
-                      <button ${isUsed ? "disabled" : ""} onclick="toggleWordByIndex(${idx})" class="px-4 py-2 rounded-xl text-sm font-semibold border transition ${
-                        isUsed ? "bg-slate-900 border-slate-800 text-slate-700 cursor-not-allowed" : "bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-100"
+                      <button ${isUsed ? "disabled" : ""} onclick="toggleWordByIndex(${idx})" class="px-4 py-2.5 rounded-2xl text-base font-bold border transition ${
+                        isUsed ? "bg-slate-950 border-slate-800 text-slate-700 cursor-not-allowed" : "bg-slate-800 hover:bg-slate-700 border-slate-700 text-white"
                       }">
                         ${escHtml(w)}
                       </button>
@@ -11896,18 +11398,19 @@
                   }).join("")}
                 </div>
 
-                <div class="flex gap-3">
-                  <button onclick="state.selectedWords=[]; render();" class="px-4 py-3 rounded-xl bg-slate-800 text-slate-300 text-sm font-semibold">Wyczyść</button>
-                  <button onclick="checkBlocks()" class="flex-1 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm">Sprawdź kolejność słów</button>
+                <div class="flex gap-2.5 pt-1">
+                  <button onclick="state.selectedWords=[]; render();" class="px-4 py-3.5 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-bold">Wyczyść</button>
+                  <button onclick="checkBlocks()" class="flex-1 py-3.5 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-base btn-solid transition">Sprawdź zdanie</button>
                 </div>
               ` : `
                 <div class="space-y-4">
-                  <div class="p-3 rounded-xl bg-emerald-950/50 border border-emerald-500/40 text-emerald-300 text-sm font-bold">
-                    ✓ Poprawnie ułożono: „${escHtml(blk.en)}”
+                  <div class="p-4 rounded-2xl bg-emerald-950/50 border border-emerald-500/40 text-center">
+                    <span class="text-xs font-extrabold text-emerald-400 uppercase">✓ Świetnie!</span>
+                    <p class="text-xl font-extrabold text-white mt-1">${escHtml(blk.en)}</p>
                   </div>
-                  ${renderSpeechTrainer(blkKey, blk.en, "Przeczytaj ułożone zdanie na głos", "", lesson.level)}
-                  <button onclick="nextBlock()" class="w-full py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-sm">
-                    Następne zadanie →
+                  ${renderSpeechTrainer(blkKey, blk.en, "", "", lesson.level)}
+                  <button onclick="nextBlock()" class="w-full py-4 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold text-base btn-solid shadow-md transition">
+                    Następne zdanie →
                   </button>
                 </div>
               `}
@@ -11915,30 +11418,43 @@
           `;
         }
 
-        // --- ETAP 3 ---
+        // --- ETAP 3: LUKI W KONTEKŚCIE ---
         else if (state.activeStage === 3) {
           const ctx = slice.context[state.contextIndex] || slice.context[0];
           const ctxKey = `ctx_${lesson.id}_${slice.ctxOffset + state.contextIndex}`;
           const correctText = ctx.opts[ctx.ans];
+          const pct3 = Math.round(((state.contextIndex + 1) / Math.max(1, slice.context.length)) * 100);
           html += `
-            <div class="max-w-2xl mx-auto bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 card-shadow">
-              <div class="text-xs text-slate-400 mb-3">${slice.isSplit ? `Część ${slice.part}/2 • ` : ""}Zadanie ${state.contextIndex + 1} z ${slice.context.length}</div>
-              <h3 class="text-lg font-bold text-white mb-6">${escHtml(ctx.q)}</h3>
-              <div class="space-y-3">
+            <div class="bg-slate-900 border border-slate-800 rounded-3xl p-5 sm:p-7 card-shadow space-y-5">
+              <div class="space-y-2">
+                <div class="flex justify-between text-xs font-bold text-slate-400">
+                  <span>Pytanie <b class="text-white">${state.contextIndex + 1}</b> z ${slice.context.length}</span>
+                  <span>Wybierz słówko</span>
+                </div>
+                <div class="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                  <div class="h-full bg-indigo-500 transition-all" style="width:${pct3}%"></div>
+                </div>
+              </div>
+
+              <h3 class="text-lg sm:text-xl font-extrabold text-white leading-relaxed">${escHtml(ctx.q)}</h3>
+
+              <div class="space-y-2.5">
                 ${ctx.opts.map((opt, idx) => `
-                  <button onclick="answerContext(${idx})" class="w-full text-left p-4 rounded-2xl bg-slate-950 hover:bg-slate-800 border ${
-                    state.contextFeedback === "correct" && idx === ctx.ans ? "border-emerald-500 bg-emerald-950/30" : "border-slate-800 hover:border-indigo-500"
-                  } text-slate-100 text-sm font-medium transition">
+                  <button onclick="answerContext(${idx})" class="w-full text-left p-4 rounded-2xl bg-slate-950 hover:bg-slate-800 border-2 ${
+                    state.contextFeedback === "correct" && idx === ctx.ans ? "border-emerald-500 bg-emerald-950/35 text-emerald-200" : "border-slate-800 hover:border-indigo-500 text-white"
+                  } text-base sm:text-lg font-bold transition">
                     ${escHtml(opt)}
                   </button>
                 `).join("")}
               </div>
-              ${state.contextFeedback === "wrong" ? `<p class="mt-4 text-sm text-rose-400 font-semibold">To nie to słówko. Spróbuj wybrać inną odpowiedź!</p>` : ""}
+
+              ${state.contextFeedback === "wrong" ? `<p class="text-sm text-rose-400 font-bold text-center">To nie to słówko — spróbuj jeszcze raz!</p>` : ""}
+
               ${state.contextFeedback === "correct" ? `
-                <div class="mt-5 space-y-4">
-                  <p class="text-sm text-emerald-400 font-semibold">✓ Dobrze! Teraz wypowiedz to słówko na głos:</p>
-                  ${renderSpeechTrainer(ctxKey, correctText, "Powiedz słówko do mikrofonu", "", lesson.level)}
-                  <button onclick="nextContext()" class="w-full py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-sm">
+                <div class="space-y-4 pt-1">
+                  <p class="text-sm text-emerald-400 font-extrabold text-center">✓ Dobrze! Powiedz to słówko na głos:</p>
+                  ${renderSpeechTrainer(ctxKey, correctText, "", "", lesson.level)}
+                  <button onclick="nextContext()" class="w-full py-4 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold text-base btn-solid shadow-md transition">
                     Dalej →
                   </button>
                 </div>
@@ -11947,203 +11463,192 @@
           `;
         }
 
-        // --- ETAP 4: UŁATWIONE DYKTANDO (LUKA NA A0-A2 + PODPOWIEDŹ LITER) ---
+        // --- ETAP 4: DYKTANDO ---
         else if (state.activeStage === 4) {
           const dct = slice.dictation[state.dictIndex] || slice.dictation[0];
           const dctKey = regText(`dct_${lesson.id}_${slice.dctOffset + state.dictIndex}`, dct.en);
           const easyMode = isEasyDictationActive(lesson);
           const focusWord = dct.focusWord || dct.en.split(" ").slice(-1)[0];
-          const escapedFocus = focusWord.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+          const escapedFocus = focusWord.replace(/[.*+?^${}()|[\]\]/g, "\$&");
           const gappedSent = dct.en.replace(new RegExp(escapedFocus, "i"), "________");
           const targetForHint = easyMode ? focusWord : dct.en;
+          const pct4 = Math.round(((state.dictIndex + 1) / Math.max(1, slice.dictation.length)) * 100);
 
           html += `
-            <div class="max-w-2xl mx-auto bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 card-shadow">
-              <div class="flex flex-wrap justify-between items-center gap-2 text-xs text-slate-400 mb-4">
-                <span>${slice.isSplit ? `Część ${slice.part}/2 • ` : ""}Ćwiczenie ${state.dictIndex + 1} z ${slice.dictation.length}</span>
-                <div class="flex gap-1 bg-slate-950 p-1 rounded-lg border border-slate-800">
-                  <button onclick="state.dictMode='gap'; state.dictInput=''; state.dictChecked=false; state.dictStatus=null; render();" class="px-2 py-1 rounded ${easyMode ? 'bg-indigo-600 text-white font-bold' : 'text-slate-400'}">Łatwy (1 słowo)</button>
-                  <button onclick="state.dictMode='full'; state.dictInput=''; state.dictChecked=false; state.dictStatus=null; render();" class="px-2 py-1 rounded ${!easyMode ? 'bg-indigo-600 text-white font-bold' : 'text-slate-400'}">Pełne zdanie</button>
+            <div class="bg-slate-900 border border-slate-800 rounded-3xl p-5 sm:p-7 card-shadow space-y-5">
+              <div class="space-y-2">
+                <div class="flex flex-wrap justify-between items-center gap-2 text-xs font-bold text-slate-400">
+                  <span>Dyktando <b class="text-white">${state.dictIndex + 1}</b> z ${slice.dictation.length}</span>
+                  <div class="flex gap-1 bg-slate-950 p-0.5 rounded-xl border border-slate-800">
+                    <button onclick="state.dictMode='gap'; state.dictInput=''; state.dictChecked=false; state.dictStatus=null; render();" class="px-2.5 py-1 rounded-lg ${easyMode ? 'bg-indigo-600 text-white btn-solid' : 'text-slate-400'}">1 słowo</button>
+                    <button onclick="state.dictMode='full'; state.dictInput=''; state.dictChecked=false; state.dictStatus=null; render();" class="px-2.5 py-1 rounded-lg ${!easyMode ? 'bg-indigo-600 text-white btn-solid' : 'text-slate-400'}">Całe zdanie</button>
+                  </div>
+                </div>
+                <div class="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                  <div class="h-full bg-indigo-500 transition-all" style="width:${pct4}%"></div>
                 </div>
               </div>
 
-              <div class="bg-slate-950 border border-slate-800 rounded-2xl p-5 mb-5 text-center">
-                <p class="text-xs text-slate-400 mb-3">${easyMode ? "1. Odsłuchaj zdanie i wpisz TYLKO brakujące słowo:" : "1. Odsłuchaj zdanie i zapisz je w całości ze słuchu:"}</p>
-                <div class="flex justify-center gap-3 mb-3">
-                  <button onclick="speakByKey('${dctKey}', ${state.defaultRate})" class="px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-bold">🔊 Odtwórz (${state.defaultRate}x)</button>
-                  <button onclick="speakByKey('${dctKey}', 0.65)" class="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-300 text-sm font-bold">🐢 Wolniej (0.65x)</button>
+              <div class="text-center space-y-3">
+                <div class="grid grid-cols-2 gap-2">
+                  <button onclick="speakByKey('${dctKey}', ${state.defaultRate})" class="py-3.5 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm sm:text-base font-extrabold btn-solid transition">🔊 Odtwórz</button>
+                  <button onclick="speakByKey('${dctKey}', 0.65)" class="py-3.5 rounded-2xl bg-slate-800 hover:bg-slate-700 text-amber-300 text-sm sm:text-base font-extrabold transition">🐢 Wolniej</button>
                 </div>
                 ${easyMode ? `
-                  <p class="text-base sm:text-lg font-extrabold text-white mt-3">„${escHtml(gappedSent)}”</p>
-                  <div class="inline-block mt-2 px-3.5 py-1.5 rounded-xl bg-emerald-950/45 border border-emerald-500/35"><p class="text-sm sm:text-base font-bold text-white">🇵🇱 ${escHtml(dct.pl)}</p></div>
+                  <p class="text-lg sm:text-xl font-extrabold text-white pt-1">„${escHtml(gappedSent)}”</p>
+                  <div class="mx-auto max-w-md px-4 py-2.5 rounded-2xl bg-emerald-950/45 border border-emerald-500/35">
+                    <p class="text-base font-bold text-white">🇵🇱 ${escHtml(dct.pl)}</p>
+                  </div>
                 ` : ""}
               </div>
 
-              <div class="mb-3">
-                ${state.dictHintShown ? `
-                  <p class="text-xs text-amber-300 font-mono bg-amber-950/30 border border-amber-500/20 px-3 py-2 rounded-xl mb-2">💡 Podpowiedź liter: <b>${escHtml(buildLetterHint(targetForHint))}</b></p>
-                ` : `
-                  <button onclick="state.dictHintShown=true; render();" class="text-xs text-indigo-400 hover:underline mb-2 inline-block">💡 Pokaż podpowiedź (pierwsze i ostatnie litery)</button>
-                `}
-                <input type="text" value="${escHtml(state.dictInput)}" oninput="state.dictInput = this.value" onkeydown="if(event.key==='Enter') checkDictation();" placeholder="${easyMode ? 'Wpisz brakujące słowo po angielsku...' : 'Wpisz całe zdanie po angielsku...'}" class="w-full p-3.5 rounded-xl bg-slate-950 border border-slate-700 text-white text-sm focus:outline-none focus:border-indigo-500" />
+              <div class="space-y-2.5">
+                <input type="text" value="${escHtml(state.dictInput)}" oninput="state.dictInput = this.value" onkeydown="if(event.key==='Enter') checkDictation();" placeholder="${easyMode ? 'Wpisz brakujące słowo...' : 'Wpisz całe zdanie...'}" class="w-full p-4 rounded-2xl bg-slate-950 border-2 border-slate-700 text-white text-base sm:text-lg font-semibold focus:outline-none focus:border-indigo-500" />
+                <div class="flex items-center justify-between gap-2">
+                  ${state.dictHintShown
+                    ? `<span class="text-xs sm:text-sm text-amber-300 font-mono">💡 <b>${escHtml(buildLetterHint(targetForHint))}</b></span>`
+                    : `<button onclick="state.dictHintShown=true; render();" class="text-xs text-indigo-400 hover:underline font-bold">💡 Podpowiedź liter</button>`}
+                  <button onclick="checkDictation()" class="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-extrabold btn-solid transition">Sprawdź</button>
+                </div>
               </div>
 
-              <button onclick="checkDictation()" class="w-full py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-sm font-semibold mb-4">Sprawdź pisownię</button>
-
               ${state.dictChecked ? `
-                <div class="p-4 rounded-xl bg-slate-950 border ${
+                <div class="p-4 rounded-2xl bg-slate-950 border ${
                   state.dictStatus === 'exact' ? 'border-emerald-500/50'
                   : state.dictStatus === 'typo' ? 'border-amber-500/50'
                   : 'border-rose-500/40'
-                } mb-5 space-y-1.5">
-                  <p class="text-xs font-extrabold ${
+                } space-y-1.5 text-center">
+                  <p class="text-sm font-extrabold ${
                     state.dictStatus === 'exact' ? 'text-emerald-400'
                     : state.dictStatus === 'typo' ? 'text-amber-300'
                     : 'text-rose-400'
                   }">
-                    ${state.dictStatus === 'exact'
-                      ? '✅ Idealna pisownia! (+15 XP)'
-                      : state.dictStatus === 'typo'
-                        ? '✓ Zaliczone z drobną literówką! (+15 XP) — zerknij na dokładny zapis poniżej:'
-                        : '✗ Prawie! Zerknij na poprawny zapis i przejdź dalej lub popraw.'}
+                    ${state.dictStatus === 'exact' ? '✅ Idealnie! (+15 XP)' : state.dictStatus === 'typo' ? '✓ Zaliczono z drobną literówką (+15 XP)' : 'Sprawdź poprawny zapis:'}
                   </p>
-                  <p class="text-xs text-slate-400">Poprawny zapis${easyMode ? ` (szukane słowo: <b class="text-white">${escHtml(focusWord)}</b>)` : ""}:</p>
-                  <p class="text-base font-bold text-emerald-400">${escHtml(dct.en)}</p>
-                  <p class="text-xs text-amber-300 font-mono">🗣️ [${escHtml(dct.phon)}]</p>
-                  <p class="text-xs text-slate-400">(${escHtml(dct.pl)})</p>
+                  <p class="text-lg font-extrabold text-white">${escHtml(dct.en)}</p>
+                  <p class="text-xs sm:text-sm text-amber-300 font-mono">[${escHtml(dct.phon)}]</p>
                 </div>
+                ${renderSpeechTrainer(dctKey, dct.en, "", "", lesson.level)}
               ` : ""}
 
-              ${renderSpeechTrainer(dctKey, dct.en, "2. Powtórz zdanie na głos (Ocena fonetyczna)", dct.phon, lesson.level)}
-
-              <button onclick="nextDictation()" class="mt-6 w-full py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-sm">
-                Dalej → Przejdź do Scenki
+              <button onclick="nextDictation()" class="w-full py-4 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold text-base btn-solid shadow-md transition">
+                Dalej →
               </button>
             </div>
           `;
         }
 
-        // --- ETAP 5 ---
+        // --- ETAP 5: MÓWIENIE (CZYSTA KARTA PO KARCIE + OPCJA WIDOKU LISTY) ---
         else if (state.activeStage === 5) {
           const activeLines = slice.lines;
           const hideEnAll = state.dialogueRole === "HIDE_ALL";
+          const curIdx = Math.max(0, Math.min(activeLines.length - 1, state.stage5Index || 0));
           const passedCount = activeLines.filter((line, lIdx) => {
             const k = `dlg_${lesson.id}_${slice.lineOffset + lIdx}`;
             const r = state.speechResults[k];
             const lThr = getPassThreshold(lesson.level, normalizeWords(line.en).length);
             return r && r.status === "done" && r.score >= lThr;
           }).length;
-
-          html += `
-            <div class="max-w-3xl mx-auto bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 card-shadow">
-              <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
-                <div>
-                  <span class="text-xs font-bold text-emerald-400 uppercase">${isA0 ? 'Etap 3' : 'Etap 5'}${slice.isSplit ? ` • Część ${slice.part}/2` : ''} • Trening zdań na głos</span>
-                  <h3 class="text-xl font-bold text-white">${escHtml(lesson.title)}</h3>
-                  <p class="text-xs text-slate-400 mt-0.5">Przećwicz kluczowe zdania z tej porcji na głos (zaliczono: <b class="${passedCount === activeLines.length ? 'text-emerald-400' : 'text-white'}">${passedCount}/${activeLines.length}</b>).</p>
-                </div>
-                <div class="flex gap-2">
-                  <button onclick="playCurrentDialogue('${lesson.id}', ${state.defaultRate})" class="px-3 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold btn-solid">🔊 Całość (${state.defaultRate}x)</button>
-                  <button onclick="playCurrentDialogue('${lesson.id}', 0.65)" class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-300 text-xs font-bold">🐢 Wolno (0.65x)</button>
-                </div>
-              </div>
-
-              <div class="flex flex-wrap items-center justify-between gap-2 mb-5 text-xs">
-                <div class="flex items-center gap-2">
-                  <span class="text-slate-400">Widok:</span>
-                  <button onclick="state.dialogueRole='ALL'; render();" class="px-2.5 py-1.5 rounded-lg font-semibold ${!hideEnAll ? 'bg-indigo-600 text-white btn-solid' : 'bg-slate-800 text-slate-300'}">Pokaż angielski</button>
-                  <button onclick="state.dialogueRole='HIDE_ALL'; render();" class="px-2.5 py-1.5 rounded-lg font-semibold ${hideEnAll ? 'bg-indigo-600 text-white btn-solid' : 'bg-slate-800 text-slate-300'}">Ukryj angielski (Mów z pamięci!)</button>
-                </div>
-                <button onclick="navigateTo('dialogues_hub', { resetRoleplay: true })" class="text-emerald-400 hover:underline font-semibold">🎭 Prawdziwe rozmówki →</button>
-              </div>
-
-              <div class="space-y-3.5 mb-6">
-                ${activeLines.map((line, lIdx) => {
-                  const lineKey = regText(`dlg_${lesson.id}_${slice.lineOffset + lIdx}`, line.en);
-                  const lineThr = getPassThreshold(lesson.level, normalizeWords(line.en).length);
-                  const res = state.speechResults[lineKey];
-                  const isListening = state.activeMicKey === lineKey;
-                  const isPassed = res && res.status === "done" && res.score >= lineThr;
-                  const analysis = (res && Array.isArray(res.wordAnalysis)) ? res.wordAnalysis : [];
-
-                  return `
-                    <div class="p-4 rounded-2xl border bg-slate-950 ${isPassed ? 'border-emerald-500/45' : 'border-slate-800'} space-y-2.5 transition">
-                      <div class="flex justify-between items-start gap-3">
-                        <div>
-                          <div class="flex items-center gap-2">
-                            <span class="text-[11px] font-bold text-slate-500 uppercase">Zdanie ${lIdx + 1}</span>
-                            ${isPassed ? `<span class="px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 text-[10px] font-bold">✓ Zaliczono (${res.score}%)</span>` : ""}
-                          </div>
-                          <p class="text-lg sm:text-xl font-bold text-white leading-snug mt-1">
-                            ${hideEnAll ? `<span class="text-sm font-medium text-amber-300 italic">Przetłumacz poniższe zdanie na głos do mikrofonu...</span>` : escHtml(line.en)}
-                          </p>
-                          ${!hideEnAll && line.phon ? `<p class="text-xs sm:text-sm text-amber-300/90 font-mono mt-1">[${escHtml(line.phon)}]</p>` : ""}
-                          <div class="mt-2 px-3 py-2 rounded-xl bg-emerald-950/40 border border-emerald-500/30"><p class="text-sm sm:text-base font-bold text-white">🇵🇱 ${escHtml(line.pl)}</p></div>
-                        </div>
-                        <div class="flex flex-col gap-1 shrink-0">
-                          <button onclick="speakByKey('${lineKey}', ${state.defaultRate})" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-white">🔊 ${state.defaultRate}x</button>
-                          <button onclick="speakByKey('${lineKey}', 0.65)" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-amber-300">🐢 0.65x</button>
-                        </div>
-                      </div>
-
-                      ${state.silentMode ? `
-                        <p class="text-[11px] text-slate-500 text-center py-1">🔇 Tryb cichy włączony (odsłuch bez mikrofonu · zmienisz w Opcjach)</p>
-                      ` : `
-                        <button onclick="micByKey('${lineKey}', ${lineThr})" class="w-full py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition ${
-                          isListening
-                            ? 'bg-rose-600 text-white btn-solid'
-                            : isPassed
-                              ? 'bg-emerald-600/25 border border-emerald-500/50 text-emerald-300 hover:bg-emerald-600/35'
-                              : 'bg-slate-800/90 hover:bg-slate-700 text-emerald-300 border border-slate-700'
-                        }">
-                          🎤 ${isListening ? "Słucham... (kliknij, aby przerwać)" : isPassed ? "✓ Zaliczono — powtórz jeszcze raz" : "Powiedz to zdanie na głos"}
-                        </button>
-                      `}
-
-                      ${res && res.status === "done" ? `
-                        <div class="p-3 rounded-xl text-xs space-y-1.5 ${isPassed ? 'bg-emerald-950/70 text-emerald-200 border border-emerald-500/30' : 'bg-amber-950/70 text-amber-200 border border-amber-500/30'}">
-                          <div class="flex justify-between font-bold">
-                            <span>${isPassed ? '✅ Zaliczono! Wyraźna wymowa!' : '⚠️ Blisko — popraw zaznaczone słowa:'}</span>
-                            <span>Zgodność: ${res.score}% (próg ${lineThr}%)</span>
-                          </div>
-                          <p>Usłyszałem: <span class="italic text-white">„${escHtml(res.transcript)}”</span></p>
-                          ${analysis.length > 0 ? `
-                            <div class="flex flex-wrap gap-1.5 pt-0.5">
-                              ${analysis.map(w => `
-                                <span class="px-2 py-0.5 rounded font-mono text-[11px] ${
-                                  w.status === 'ok' ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                                  : w.status === 'close' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                                  : 'bg-rose-500/20 text-rose-300 border border-rose-500/30 line-through'
-                                }">${escHtml(w.word)}</span>
-                              `).join("")}
-                            </div>
-                          ` : ""}
-                        </div>
-                      ` : res && res.status === "error" ? `
-                        <p class="text-xs text-amber-300">⚠️ ${escHtml(res.transcript)}</p>
-                      ` : ""}
-                    </div>
-                  `;
-                }).join("")}
-              </div>
-
-              ${slice.part === 1 ? `
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                  <button onclick="completeLessonStage5('${lesson.id}', true)" class="w-full py-3.5 px-4 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm btn-solid transition">
-                    ✓ Zakończ Cz. 1/2 → Idź do Cz. 2/2
-                  </button>
-                  <button onclick="completeLessonStage5('${lesson.id}', false)" class="w-full py-3.5 px-4 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-sm border border-slate-700 transition">
-                    Zapisz Cz. 1/2 i wróć do listy
-                  </button>
-                </div>
-              ` : `
-                <button onclick="completeLessonStage5('${lesson.id}', false)" class="w-full py-3.5 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm btn-solid transition">
-                  ✓ ${slice.part === 2 ? 'Zakończ Cz. 2/2 i ukończ lekcję' : 'Oznacz lekcję jako ukończoną'} (+${slice.part === 2 ? 15 : 25} XP)
-                </button>
-              `}
+          const pct5 = Math.round(((curIdx + 1) / Math.max(1, activeLines.length)) * 100);
+          const finishBtnHtml = slice.part === 1 ? `
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
+              <button onclick="completeLessonStage5('${lesson.id}', true)" class="w-full py-4 px-4 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-base btn-solid transition">
+                ✓ Zakończ Cz. 1 → Idź do Cz. 2
+              </button>
+              <button onclick="completeLessonStage5('${lesson.id}', false)" class="w-full py-3.5 px-4 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-sm border border-slate-700 transition">
+                Zapisz i wróć do listy
+              </button>
             </div>
+          ` : `
+            <button onclick="completeLessonStage5('${lesson.id}', false)" class="w-full py-4 px-4 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-base btn-solid shadow-md transition">
+              ✅ ${slice.part === 2 ? 'Zakończ lekcję (+15 XP)' : 'Zakończ lekcję (+25 XP)'}
+            </button>
           `;
+
+          if (!state.stage5ShowAll) {
+            const line = activeLines[curIdx] || activeLines[0];
+            const lineKey = regText(`dlg_${lesson.id}_${slice.lineOffset + curIdx}`, line.en);
+            const isLastLine = curIdx >= activeLines.length - 1;
+
+            html += `
+              <div class="bg-slate-900 border border-slate-800 rounded-3xl p-5 sm:p-7 card-shadow space-y-5">
+                <div class="space-y-2">
+                  <div class="flex items-center justify-between gap-2 text-xs font-bold">
+                    <span class="text-slate-400">Zdanie <b class="text-white">${curIdx + 1}</b> z ${activeLines.length} • Zaliczono: <b class="text-emerald-400">${passedCount}</b></span>
+                    <div class="flex items-center gap-1.5">
+                      <button onclick="state.dialogueRole = state.dialogueRole === 'HIDE_ALL' ? 'ALL' : 'HIDE_ALL'; render();" class="px-2.5 py-1 rounded-lg border text-[11px] font-bold transition ${hideEnAll ? 'bg-amber-950/60 border-amber-500/45 text-amber-300' : 'bg-slate-800 border-slate-700 text-slate-300'}">
+                        ${hideEnAll ? '🙈 Z pamięci' : '👁️ EN: WŁ'}
+                      </button>
+                      <button onclick="state.stage5ShowAll = true; render();" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] font-bold">📋 Lista</button>
+                    </div>
+                  </div>
+                  <div class="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                    <div class="h-full bg-emerald-500 transition-all" style="width:${pct5}%"></div>
+                  </div>
+                </div>
+
+                <div class="text-center py-2 space-y-3.5">
+                  ${hideEnAll ? `
+                    <p class="text-sm font-bold text-amber-300">Powiedz to zdanie po angielsku:</p>
+                  ` : `
+                    <h3 onclick="speakByKey('${lineKey}', ${state.defaultRate})" class="text-2xl sm:text-3xl font-extrabold text-white leading-snug cursor-pointer hover:text-indigo-200 transition">
+                      ${escHtml(line.en)}
+                    </h3>
+                    ${line.phon ? `<p class="text-sm text-amber-300/90 font-mono">[${escHtml(line.phon)}]</p>` : ""}
+                  `}
+                  <div class="mx-auto max-w-lg px-4 py-3 rounded-2xl bg-emerald-950/45 border border-emerald-500/35">
+                    <p class="text-base sm:text-lg font-bold text-white">🇵🇱 ${escHtml(line.pl)}</p>
+                  </div>
+                </div>
+
+                ${renderSpeechTrainer(lineKey, line.en, "", "", lesson.level)}
+
+                ${isLastLine ? finishBtnHtml : `
+                  <div class="grid grid-cols-3 gap-2 pt-1">
+                    <button onclick="setStage5Index(${curIdx - 1}, ${activeLines.length})" ${curIdx === 0 ? 'disabled' : ''} class="py-3.5 rounded-2xl bg-slate-800 hover:bg-slate-700 disabled:opacity-35 text-slate-200 font-bold text-sm transition">
+                      ← Poprz.
+                    </button>
+                    <button onclick="setStage5Index(${curIdx + 1}, ${activeLines.length})" class="col-span-2 py-3.5 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold text-base btn-solid shadow-md transition">
+                      Następne zdanie →
+                    </button>
+                  </div>
+                `}
+              </div>
+            `;
+          } else {
+            html += `
+              <div class="bg-slate-900 border border-slate-800 rounded-3xl p-5 sm:p-7 card-shadow space-y-4">
+                <div class="flex flex-wrap items-center justify-between gap-2">
+                  <span class="text-xs font-bold text-slate-400">Wszystkie zdania (${passedCount}/${activeLines.length} zaliczonych)</span>
+                  <div class="flex gap-1.5">
+                    <button onclick="playCurrentDialogue('${lesson.id}', ${state.defaultRate})" class="px-3 py-1.5 rounded-xl bg-indigo-600 text-white text-xs font-bold btn-solid">🔊 Całość</button>
+                    <button onclick="state.stage5ShowAll = false; render();" class="px-3 py-1.5 rounded-xl bg-slate-800 text-slate-200 text-xs font-bold">🃏 Po jednym</button>
+                  </div>
+                </div>
+
+                <div class="space-y-3">
+                  ${activeLines.map((line, lIdx) => {
+                    const lineKey = regText(`dlg_${lesson.id}_${slice.lineOffset + lIdx}`, line.en);
+                    return `
+                      <div class="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-3">
+                        <div class="space-y-1">
+                          <p class="text-lg font-extrabold text-white leading-snug">${hideEnAll ? '...' : escHtml(line.en)}</p>
+                          ${!hideEnAll && line.phon ? `<p class="text-xs text-amber-300/90 font-mono">[${escHtml(line.phon)}]</p>` : ""}
+                          <div class="px-3 py-2 rounded-xl bg-emerald-950/40 border border-emerald-500/30"><p class="text-sm sm:text-base font-bold text-white">🇵🇱 ${escHtml(line.pl)}</p></div>
+                        </div>
+                        ${renderSpeechTrainer(lineKey, line.en, "", "", lesson.level)}
+                      </div>
+                    `;
+                  }).join("")}
+                </div>
+
+                ${finishBtnHtml}
+              </div>
+            `;
+          }
         }
+
+        html += `</div>`;
       }
 
       html += `</main>
