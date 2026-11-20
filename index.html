@@ -11469,7 +11469,7 @@
           const dctKey = regText(`dct_${lesson.id}_${slice.dctOffset + state.dictIndex}`, dct.en);
           const easyMode = isEasyDictationActive(lesson);
           const focusWord = dct.focusWord || dct.en.split(" ").slice(-1)[0];
-          const escapedFocus = focusWord.replace(/[.*+?^${}()|[\]\]/g, "\$&");
+          const escapedFocus = focusWord.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
           const gappedSent = dct.en.replace(new RegExp(escapedFocus, "i"), "________");
           const targetForHint = easyMode ? focusWord : dct.en;
           const pct4 = Math.round(((state.dictIndex + 1) / Math.max(1, slice.dictation.length)) * 100);
