@@ -1,4 +1,4 @@
-const CACHE_NAME = "linguastep-pwa-v44d";
+const CACHE_NAME = "linguastep-pwa-v46b";
 const CORE_ASSETS = [
   "./",
   "./index.html",
